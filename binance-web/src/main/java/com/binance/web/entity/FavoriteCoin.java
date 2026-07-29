@@ -12,6 +12,7 @@ public class FavoriteCoin {
     private String reason;
     private String volume;
     private String change24h;
+    private String recommendTime;
     private LocalDateTime createTime;
 
     public FavoriteCoin() {}
@@ -26,6 +27,7 @@ public class FavoriteCoin {
         this.reason = rec.getReason();
         this.volume = rec.getVolume();
         this.change24h = rec.getChange24h();
+        this.recommendTime = rec.getRecommendTime();
     }
 
     public Long getId() { return id; }
@@ -54,6 +56,9 @@ public class FavoriteCoin {
 
     public String getChange24h() { return change24h; }
     public void setChange24h(String change24h) { this.change24h = change24h; }
+
+    public String getRecommendTime() { return recommendTime; }
+    public void setRecommendTime(String recommendTime) { this.recommendTime = recommendTime; }
 
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }

@@ -53,6 +53,14 @@
             <span class="price">${{ formatPrice(row.price) }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="推荐购买时间" min-width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.recommendTime" type="primary" effect="plain" round size="small">
+              {{ row.recommendTime }}
+            </el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="reason" label="推荐理由" min-width="200">
           <template #default="{ row }">
             <span class="reason">{{ row.reason || '-' }}</span>

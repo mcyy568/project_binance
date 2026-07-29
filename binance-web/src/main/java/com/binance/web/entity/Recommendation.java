@@ -28,6 +28,8 @@ public class Recommendation {
     private String volume;
     /** 24h涨跌幅 */
     private String change24h;
+    /** 推荐购买时间 */
+    private String recommendTime;
     /** 更新时间 */
     private String updateTime;
 }

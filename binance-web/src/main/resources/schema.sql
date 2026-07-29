@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS favorite_coin (
     reason      VARCHAR(200) DEFAULT NULL COMMENT '推荐理由',
     volume      VARCHAR(32)  DEFAULT NULL COMMENT '24h成交量',
     change_24h  VARCHAR(16)  DEFAULT NULL COMMENT '24h涨跌幅',
+    recommend_time VARCHAR(64) DEFAULT NULL COMMENT '推荐购买时间',
     create_time DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '收藏时间',
     UNIQUE KEY uk_symbol (symbol)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收藏币种表';

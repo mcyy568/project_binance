@@ -63,6 +63,13 @@
           </span>
         </div>
 
+        <!-- 推荐购买时间 -->
+        <div v-if="item.recommendTime" class="item-recommend-time">
+          <span class="rt-icon">⏰</span>
+          <span class="rt-label">推荐购买时间：</span>
+          <span class="rt-value">{{ item.recommendTime }}</span>
+        </div>
+
         <!-- 第二行: 价格 + 24h涨跌 -->
         <div class="item-row2">
           <span class="item-price">${{ formatPrice(item.price) }}</span>
@@ -205,7 +212,8 @@ async function toggleFavorite(item) {
         price: item.price,
         reason: item.reason,
         volume: item.volume,
-        change24h: item.change24h
+        change24h: item.change24h,
+        recommendTime: item.recommendTime
       })
       favoritedSymbols.value.add(sym)
       favoritedSymbols.value = new Set(favoritedSymbols.value)
@@ -334,6 +342,33 @@ onUnmounted(() => {
   --el-button-bg-color: #fef0c7;
   --el-button-border-color: #fec84b;
   --el-button-text-color: #dc6803;
+}
+
+/* 推荐购买时间 */
+.item-recommend-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 4px 10px;
+  background: linear-gradient(135deg, #ecf5ff, #d9ecff);
+  border-radius: 6px;
+  border: 1px dashed #a0cfff;
+}
+
+.rt-icon {
+  font-size: 13px;
+}
+
+.rt-label {
+  font-size: 12px;
+  color: #606266;
+}
+
+.rt-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #409EFF;
 }
 
 /* 第二行 */

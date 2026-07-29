@@ -110,6 +110,7 @@ public class RecommendService {
                             .reason(deep.reason)
                             .volume(formatVolume(coin.getOrDefault("volume", "0")))
                             .change24h(coin.getOrDefault("priceChangePercent", "0"))
+                            .recommendTime(deep.recommendTime)
                             .updateTime(DT_FMT.format(Instant.now()))
                             .build();
 
@@ -198,6 +199,7 @@ public class RecommendService {
             result.put("score", deep.totalScore);
             result.put("direction", deep.direction);
             result.put("reason", deep.reason);
+            result.put("recommendTime", deep.recommendTime);
 
             String signal = deep.totalScore >= 80 ? "强信号" : deep.totalScore >= 65 ? "中等信号" : deep.totalScore >= 55 ? "弱信号" : "不推荐";
             result.put("signal", signal);
@@ -291,6 +293,7 @@ public class RecommendService {
         String direction;    // LONG / SHORT
         int totalScore;      // 综合评分 0-100
         String reason;       // 推荐理由
+        String recommendTime; // 推荐购买时间
     }
 
     private DeepResult deepScan(List<KlineData> klines, MediumResult medium) {
@@ -385,7 +388,48 @@ public class RecommendService {
         r.totalScore = Math.min(score, 100);
         r.reason = reasonBuilder.toString();
 
+        // 推荐购买时间
+        r.recommendTime = calcRecommendTime(medium, buyRatio, latestClose, ma7, ma25);
+
         return r;
+    }
+
+    /** 根据分析结果计算推荐购买时间 */
+    private String calcRecommendTime(MediumResult medium, double buyRatio,
+                                      double latestClose, double ma7, double ma25) {
+        boolean strongMomentum = Math.abs(medium.momentum) > 0.5;
+        boolean compression = medium.compression < 0.012 && medium.compression > 0.001;
+        boolean hugeVolume = medium.volumeRatio > 2.0;
+        boolean warmVolume = medium.volumeRatio > 1.3;
+        boolean alreadyBrokeOut = medium.breakout;
+        boolean aboveMA7 = latestClose > ma7;
+        boolean trendAlign = aboveMA7 && ma7 > ma25; // 多头排列
+
+        if (strongMomentum && alreadyBrokeOut && hugeVolume && buyRatio > 0.55) {
+            return "立即入场";
+        }
+        if (strongMomentum && warmVolume && aboveMA7) {
+            return "当前即可";
+        }
+        if (compression && alreadyBrokeOut) {
+            return "突破即追";
+        }
+        if (compression && !alreadyBrokeOut) {
+            return "等待突破确认";
+        }
+        if (trendAlign && warmVolume) {
+            return "回调至MA7入场";
+        }
+        if (strongMomentum && !warmVolume) {
+            return "等待放量";
+        }
+        if (aboveMA7 && buyRatio > 0.5) {
+            return "回踩支撑入场";
+        }
+        if (!aboveMA7 && compression) {
+            return "底部吸筹等待";
+        }
+        return "轻仓试单";
     }
 
     // ==================== 数据获取 ====================
