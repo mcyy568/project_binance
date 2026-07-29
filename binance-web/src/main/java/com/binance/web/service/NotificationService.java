@@ -9,9 +9,12 @@ import com.binance.web.mapper.NotificationMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -100,29 +103,21 @@ public class NotificationService {
             return;
         }
 
-        SimpleMailMessage msg = new SimpleMailMessage();
-        msg.setFrom(mailFrom);
-        msg.setTo(to);
-        msg.setSubject(String.format("[Binance] %s 高分推荐通知（%d条）",
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm")), list.size()));
+        try {
+            MimeMessage msg = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(msg, true, "UTF-8");
+            helper.setFrom(mailFrom);
+            helper.setTo(to);
+            helper.setSubject(String.format("[Binance] %s 高分推荐通知（%d条）",
+                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm")), list.size()));
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("以下币种评分 >= 70，建议关注：\n\n");
-        sb.append(String.format("%-10s %-6s %5s %12s %s\n", "币种", "方向", "评分", "价格", "理由"));
-        sb.append("────────────────────────────────────────────\n");
-        for (Recommendation r : list) {
-            sb.append(String.format("%-10s %-6s %5d %12s %s\n",
-                    r.getBaseAsset(),
-                    "LONG".equals(r.getDirection()) ? "做多" : "做空",
-                    r.getScore(),
-                    "$" + formatPrice(r.getPrice()),
-                    r.getReason() != null ? r.getReason() : ""));
+            String html = buildTableHtml("以下币种评分 >= 70，建议关注：", "#fff3cd", list);
+            helper.setText(html, true);
+            mailSender.send(msg);
+            log.info("高分通知邮件已发送：{} 个币种 -> {}", list.size(), to);
+        } catch (MessagingException e) {
+            log.error("发送高分邮件失败: {}", e.getMessage());
         }
-        sb.append("\n—— Binance 自动推荐系统");
-
-        msg.setText(sb.toString());
-        mailSender.send(msg);
-        log.info("高分通知邮件已发送：{} 个币种 -> {}", list.size(), to);
     }
 
     private void sendFavDropEmail(List<Recommendation> list) {
@@ -132,29 +127,21 @@ public class NotificationService {
             return;
         }
 
-        SimpleMailMessage msg = new SimpleMailMessage();
-        msg.setFrom(mailFrom);
-        msg.setTo(to);
-        msg.setSubject(String.format("[Binance] %s 收藏币种评分下降提醒（%d条）",
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm")), list.size()));
+        try {
+            MimeMessage msg = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(msg, true, "UTF-8");
+            helper.setFrom(mailFrom);
+            helper.setTo(to);
+            helper.setSubject(String.format("[Binance] %s 收藏币种评分下降提醒（%d条）",
+                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm")), list.size()));
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("以下收藏币种评分已降至 <= 70，请注意风险：\n\n");
-        sb.append(String.format("%-10s %-6s %5s %12s %s\n", "币种", "方向", "评分", "价格", "理由"));
-        sb.append("────────────────────────────────────────────\n");
-        for (Recommendation r : list) {
-            sb.append(String.format("%-10s %-6s %5d %12s %s\n",
-                    r.getBaseAsset(),
-                    "LONG".equals(r.getDirection()) ? "做多" : "做空",
-                    r.getScore(),
-                    "$" + formatPrice(r.getPrice()),
-                    r.getReason() != null ? r.getReason() : ""));
+            String html = buildTableHtml("以下收藏币种评分已降至 <= 70，请注意风险：", "#f8d7da", list);
+            helper.setText(html, true);
+            mailSender.send(msg);
+            log.info("收藏下跌通知邮件已发送：{} 个币种 -> {}", list.size(), to);
+        } catch (MessagingException e) {
+            log.error("发送收藏下跌邮件失败: {}", e.getMessage());
         }
-        sb.append("\n—— Binance 自动推荐系统");
-
-        msg.setText(sb.toString());
-        mailSender.send(msg);
-        log.info("收藏下跌通知邮件已发送：{} 个币种 -> {}", list.size(), to);
     }
 
     private String formatPrice(String price) {
@@ -167,5 +154,70 @@ public class NotificationService {
         } catch (NumberFormatException e) {
             return price;
         }
+    }
+
+    /**
+     * 构建带边框和背景色的 HTML 表格
+     * @param desc 描述文字
+     * @param headerBg 表头背景色（如 #fff3cd 黄色 / #f8d7da 红色）
+     * @param list 推荐列表
+     */
+    private String buildTableHtml(String desc, String headerBg, List<Recommendation> list) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("""
+                <!DOCTYPE html>
+                <html>
+                <head><meta charset="UTF-8"></head>
+                <body style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
+                """);
+
+        sb.append("<p style='color:#333; font-size:14px;'>").append(desc).append("</p>");
+
+        // 表格：边框、圆角、阴影
+        sb.append("""
+                <table style="width:100%; border-collapse: collapse; border: 1px solid #ddd;
+                              border-radius: 6px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                """);
+
+        // 表头
+        sb.append("<thead>");
+        sb.append("<tr style='background-color: ").append(headerBg).append("; border: 1px solid #ddd;'>");
+        sb.append("<th style='padding: 10px 14px; text-align: left; border: 1px solid #ddd; font-size: 13px;'>币种</th>");
+        sb.append("<th style='padding: 10px 14px; text-align: left; border: 1px solid #ddd; font-size: 13px;'>方向</th>");
+        sb.append("<th style='padding: 10px 14px; text-align: left; border: 1px solid #ddd; font-size: 13px;'>评分</th>");
+        sb.append("<th style='padding: 10px 14px; text-align: left; border: 1px solid #ddd; font-size: 13px;'>价格</th>");
+        sb.append("<th style='padding: 10px 14px; text-align: left; border: 1px solid #ddd; font-size: 13px;'>理由</th>");
+        sb.append("</tr>");
+        sb.append("</thead>");
+
+        // 表体 - 奇偶行不同背景色
+        sb.append("<tbody>");
+        for (int i = 0; i < list.size(); i++) {
+            Recommendation r = list.get(i);
+            String rowBg = (i % 2 == 0) ? "#ffffff" : "#fafafa";
+            String direction = "LONG".equals(r.getDirection()) ? "做多" : "做空";
+            String dirColor = "LONG".equals(r.getDirection()) ? "#28a745" : "#dc3545";
+            String scoreColor = r.getScore() >= 80 ? "#28a745" : r.getScore() >= 70 ? "#ffc107" : "#dc3545";
+
+            sb.append("<tr style='background-color: ").append(rowBg).append("; border: 1px solid #ddd;'>");
+            sb.append("<td style='padding: 8px 14px; border: 1px solid #ddd; font-weight: bold;'>")
+              .append(r.getBaseAsset()).append("</td>");
+            sb.append("<td style='padding: 8px 14px; border: 1px solid #ddd; color: ").append(dirColor)
+              .append("; font-weight: bold;'>").append(direction).append("</td>");
+            sb.append("<td style='padding: 8px 14px; border: 1px solid #ddd; color: ").append(scoreColor)
+              .append("; font-weight: bold;'>").append(r.getScore()).append("</td>");
+            sb.append("<td style='padding: 8px 14px; border: 1px solid #ddd;'>$")
+              .append(formatPrice(r.getPrice())).append("</td>");
+            sb.append("<td style='padding: 8px 14px; border: 1px solid #ddd;'>")
+              .append(r.getReason() != null ? r.getReason() : "").append("</td>");
+            sb.append("</tr>");
+        }
+        sb.append("</tbody>");
+        sb.append("</table>");
+
+        sb.append("<p style='color:#888; font-size:12px; margin-top: 16px;'>—— Binance 自动推荐系统</p>");
+        sb.append("</body></html>");
+
+        return sb.toString();
     }
 }
