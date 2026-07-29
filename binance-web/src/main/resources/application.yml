@@ -45,7 +45,7 @@ mybatis:
 # 测试网地址: https://testnet.binance.vision （需从该网站申请新的测试网 API Key）
 # 也可使用期货测试网: https://testnet.binancefuture.com
 binance:
-  base-url: https://demo-api.binance.com
+  base-url: https://api.binance.com
   # 以下 API Key 需在 https://testnet.binance.vision 重新申请，旧 demo-api 密钥不通用
   api-key: 9B8lqewcHNwP8DvkhMkRTcLEAP3Kk5qsk1AwEQrgeO0S4VNYHX70ftJEFZ3BgfhK
   secret-key: ZeEno8N9JYdc1waaxQ41D0qWPyU0YBTWRnggaZsrzALrqzwlMcTQw2DUvjlm6s0x

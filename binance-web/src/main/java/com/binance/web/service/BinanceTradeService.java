@@ -238,8 +238,6 @@ public class BinanceTradeService {
         String signature = hmacSha256(secretKey, query.toString());
         query.append("&signature=").append(signature);
 
-        String fullUrl = binanceProperties.getBaseUrl() + path + "?" + query;
-
         log.debug("签名请求: {} {}", method, path);
 
         // 多地址 fallback
@@ -257,9 +255,7 @@ public class BinanceTradeService {
                 if (method == HttpMethod.GET) {
                     resp = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
                 } else {
-                    resp = restTemplate.exchange(fullUrl.contains("?") ? fullUrl : fullUrl + "?" + query,
-                            HttpMethod.POST, entity, String.class);
-                    // 对于 POST，使用签名后的完整 URL
+                    // POST：将参数放在请求体中发送
                     resp = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
                 }
 
@@ -276,11 +272,12 @@ public class BinanceTradeService {
                 }
             } catch (HttpClientErrorException e) {
                 String body = e.getResponseBodyAsString();
-                log.debug("签名请求失败 {} status={}: {}", url, e.getStatusCode(), body);
+                log.warn("Binance 签名请求失败 {} status={}: {}", url, e.getStatusCode(), body);
             } catch (ResourceAccessException e) {
-                log.debug("签名请求超时: {}", url);
+                log.warn("Binance 签名请求超时: {} - 请检查 base-url ({}) 是否为网络可达",
+                        url, binanceProperties.getBaseUrl());
             } catch (Exception e) {
-                log.debug("签名请求异常: {} - {}", url, e.getMessage());
+                log.warn("Binance 签名请求异常: {} - {}", url, e.getMessage());
             }
         }
 
