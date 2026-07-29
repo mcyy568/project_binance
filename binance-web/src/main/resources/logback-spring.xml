@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- 日志文件存放路径 -->
+    <springProperty scope="context" name="LOG_PATH" source="logging.file.path" defaultValue="./logs"/>
+
+    <!-- 控制台输出 -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 全部日志文件输出 (按天滚动) -->
+    <appender name="FILE_ALL" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/app.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- 每天滚动 -->
+            <fileNamePattern>${LOG_PATH}/app.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <!-- 保留30天 -->
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- 错误日志单独输出 (按天滚动) -->
+    <appender name="FILE_ERROR" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/error.log</file>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/error.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>90</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- 策略交易日志单独输出 -->
+    <appender name="FILE_STRATEGY" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/strategy.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/strategy.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>60</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- 推荐扫描日志单独输出 -->
+    <appender name="FILE_RECOMMEND" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/recommend.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/recommend.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- 策略交易相关日志 -->
+    <logger name="com.binance.web.service.StrategyService" level="DEBUG" additivity="false">
+        <appender-ref ref="FILE_STRATEGY"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="com.binance.web.scheduler.StrategyScheduler" level="DEBUG" additivity="false">
+        <appender-ref ref="FILE_STRATEGY"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <!-- 推荐扫描相关日志 -->
+    <logger name="com.binance.web.service.RecommendService" level="DEBUG" additivity="false">
+        <appender-ref ref="FILE_RECOMMEND"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="com.binance.web.scheduler.RecommendScheduler" level="DEBUG" additivity="false">
+        <appender-ref ref="FILE_RECOMMEND"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <!-- Binance API 调用日志 -->
+    <logger name="com.binance.web.service.CoinService" level="INFO" additivity="false">
+        <appender-ref ref="FILE_RECOMMEND"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <!-- MyBatis SQL日志（开发时可打开 DEBUG 查看SQL） -->
+    <logger name="com.binance.web.mapper" level="INFO" additivity="false">
+        <appender-ref ref="FILE_ALL"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <!-- Spring 框架日志 -->
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.mybatis" level="WARN"/>
+
+    <!-- 根日志 -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE_ALL"/>
+        <appender-ref ref="FILE_ERROR"/>
+    </root>
+
+</configuration>

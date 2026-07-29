@@ -54,3 +54,7 @@ binance:
   # 邮件通知配置
   notification:
     email: 568237200@qq.com  # 接收通知的邮箱
+
+logging:
+  file:
+    path: /data/logs
