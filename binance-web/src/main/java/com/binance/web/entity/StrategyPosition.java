@@ -1,11 +1,15 @@
 package com.binance.web.entity;
 
 import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 
 /**
  * 策略持仓实体
  */
 @Data
+@NoArgsConstructor
+@AllArgsConstructor
 public class StrategyPosition {
     private Long id;
 
@@ -50,6 +54,15 @@ public class StrategyPosition {
 
     /** 最大逆向 */
     private Double maxAdverse;
+
+    /** Binance 开仓订单ID */
+    private Long orderId;
+
+    /** Binance 平仓订单ID */
+    private Long closeOrderId;
+
+    /** 实际成交数量（币本位） */
+    private String executedQty;
 
     /** 状态: OPEN/CLOSED */
     private String status;

@@ -45,12 +45,15 @@ public class StrategyService {
     @Autowired
     private BinanceProperties binanceProperties;
 
+    @Autowired
+    private BinanceTradeService binanceTradeService;
+
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
             .withZone(ZoneId.of("Asia/Shanghai"));
 
-    /** 模拟初始账户 */
-    private double accountCapital = 1000.0;
+    /** 测试网账户资金（初始 5000 USDT） */
+    private double accountCapital = 5000.0;
 
     /** 默认监控币种 */
     private static final List<String> DEFAULT_WATCHLIST = List.of(
@@ -76,6 +79,9 @@ public class StrategyService {
      */
     public void tick() {
         try {
+            // 0. 同步测试网账户余额
+            syncAccountBalance();
+
             // 1. 更新所有持仓的浮动盈亏
             updateAllPositions();
 
@@ -91,6 +97,21 @@ public class StrategyService {
             }
         } catch (Exception e) {
             log.error("策略引擎 tick 异常: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 同步 Binance 测试网账户余额到 accountCapital
+     */
+    private void syncAccountBalance() {
+        try {
+            double balance = binanceTradeService.getUsdtBalance();
+            if (balance > 0 && Math.abs(balance - accountCapital) > 0.01) {
+                log.info("同步测试网余额: {} → {} USDT", String.format("%.2f", accountCapital), String.format("%.2f", balance));
+                accountCapital = balance;
+            }
+        } catch (Exception e) {
+            log.debug("同步余额失败: {}", e.getMessage());
         }
     }
 
@@ -251,14 +272,44 @@ public class StrategyService {
 
     private StrategyPosition openPosition(String symbol, String baseAsset, SignalResult signal, StrategyConfig config) {
         try {
+            // 现货测试网仅支持做多
+            if ("SHORT".equalsIgnoreCase(signal.direction)) {
+                log.warn("现货测试网不支持做空，跳过 {} SHORT 开仓", symbol);
+                return null;
+            }
+
+            double posSize = config.getPositionSize();
+            double usdtBalance = binanceTradeService.getUsdtBalance();
+            log.info("测试网余额: {} USDT, 计划开仓: {} USDT  {}", usdtBalance, posSize, symbol);
+            if (usdtBalance < posSize) {
+                log.warn("余额不足: {} < {} USDT, 跳过 {}", usdtBalance, posSize, symbol);
+                return null;
+            }
+
+            // 执行真实市价买入
+            Map<String, String> orderResult = binanceTradeService.marketBuy(symbol, posSize);
+            if (orderResult == null) {
+                log.error("Binance 下单失败: {} BUY", symbol);
+                return null;
+            }
+
+            String orderIdStr = orderResult.get("orderId");
+            String fillPrice = orderResult.get("avgPrice");
+            String execQty = orderResult.get("executedQty");
+            String orderStatus = orderResult.get("status");
+            double openP = fillPrice != null ? Double.parseDouble(fillPrice) : Double.parseDouble(signal.price);
+
+            log.info("Binance 开仓成功: {} @ {} 数量={} orderId={} status={}",
+                    symbol, openP, execQty, orderIdStr, orderStatus);
+
             StrategyPosition pos = new StrategyPosition();
             pos.setSymbol(symbol);
             pos.setBaseAsset(baseAsset);
             pos.setStrategyName(config.getName());
             pos.setMargin(config.getPositionSize());
             pos.setLeverage(config.getLeverage());
-            pos.setOpenPrice(signal.price);
-            pos.setCurrentPrice(signal.price);
+            pos.setOpenPrice(String.format("%.6f", openP));
+            pos.setCurrentPrice(String.format("%.6f", openP));
             pos.setDirection(signal.direction);
             pos.setStatus("OPEN");
             pos.setOpenTime(LocalDateTime.now());
@@ -266,9 +317,9 @@ public class StrategyService {
             pos.setPnlPct(0.0);
             pos.setHighestPnl(0.0);
             pos.setMaxAdverse(0.0);
+            pos.setOrderId(Long.parseLong(orderIdStr));
+            pos.setExecutedQty(execQty);
 
-            // 计算止损价
-            double openP = Double.parseDouble(signal.price);
             double stopLossPct = config.getStopLossPct() / 100.0;
             if ("LONG".equals(signal.direction)) {
                 pos.setStopLossPrice(String.format("%.6f", openP * (1 - stopLossPct / config.getLeverage())));
@@ -304,6 +355,29 @@ public class StrategyService {
                 finalPnl = (closeP - openP) / openP * pos.getMargin() * pos.getLeverage();
             }
 
+            // 执行真实市价卖出（LONG 仓位）
+            Long closeOrderId = null;
+            if ("LONG".equalsIgnoreCase(pos.getDirection()) && pos.getExecutedQty() != null) {
+                try {
+                    double qty = Double.parseDouble(pos.getExecutedQty());
+                    Map<String, String> sellResult = binanceTradeService.marketSell(pos.getSymbol(), qty);
+                    if (sellResult != null) {
+                        closeOrderId = Long.parseLong(sellResult.get("orderId"));
+                        // 使用实际成交价
+                        String sellPrice = sellResult.get("avgPrice");
+                        if (sellPrice != null && !"0".equals(sellPrice)) {
+                            closePrice = sellPrice;
+                            closeP = Double.parseDouble(closePrice);
+                            finalPnl = (closeP - openP) / openP * pos.getMargin() * pos.getLeverage();
+                        }
+                        log.info("Binance 平仓成功: {} SELL orderId={} 价格={}",
+                                pos.getSymbol(), closeOrderId, closePrice);
+                    }
+                } catch (Exception ex) {
+                    log.error("Binance 卖出失败 {}: {}，仍按本地平仓", pos.getSymbol(), ex.getMessage());
+                }
+            }
+
             long holdMinutes = Duration.between(pos.getOpenTime(), LocalDateTime.now()).toMinutes();
 
             StrategyTrade trade = new StrategyTrade();
@@ -325,7 +399,7 @@ public class StrategyService {
             trade.setCloseTime(LocalDateTime.now());
 
             strategyMapper.insertTrade(trade);
-            strategyMapper.closePosition(pos.getId());
+            strategyMapper.closePosition(pos.getId(), closeOrderId);
 
             // 更新账户资金
             accountCapital += finalPnl;

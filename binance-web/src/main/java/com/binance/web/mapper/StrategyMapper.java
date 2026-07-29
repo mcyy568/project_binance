@@ -46,10 +46,12 @@ public interface StrategyMapper {
 
     @Insert("INSERT INTO strategy_position (symbol, base_asset, strategy_name, margin, leverage, " +
             "open_price, current_price, direction, stop_loss_price, profit_protect_price, " +
-            "unrealized_pnl, pnl_pct, highest_pnl, max_adverse, status, open_time, update_time) " +
+            "unrealized_pnl, pnl_pct, highest_pnl, max_adverse, order_id, executed_qty, " +
+            "status, open_time, update_time) " +
             "VALUES (#{symbol}, #{baseAsset}, #{strategyName}, #{margin}, #{leverage}, " +
             "#{openPrice}, #{currentPrice}, #{direction}, #{stopLossPrice}, #{profitProtectPrice}, " +
-            "#{unrealizedPnl}, #{pnlPct}, #{highestPnl}, #{maxAdverse}, #{status}, #{openTime}, NOW())")
+            "#{unrealizedPnl}, #{pnlPct}, #{highestPnl}, #{maxAdverse}, #{orderId}, #{executedQty}, " +
+            "#{status}, #{openTime}, NOW())")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insertPosition(StrategyPosition position);
 
@@ -67,8 +69,8 @@ public interface StrategyMapper {
             "WHERE id=#{id}")
     int updatePositionPnL(StrategyPosition position);
 
-    @Update("UPDATE strategy_position SET status='CLOSED', update_time=NOW() WHERE id=#{id}")
-    int closePosition(@Param("id") Long id);
+    @Update("UPDATE strategy_position SET status='CLOSED', close_order_id=#{closeOrderId}, update_time=NOW() WHERE id=#{id}")
+    int closePosition(@Param("id") Long id, @Param("closeOrderId") Long closeOrderId);
 
     // ==================== 交易记录 ====================
 
