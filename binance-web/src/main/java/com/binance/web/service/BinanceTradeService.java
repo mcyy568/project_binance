@@ -155,7 +155,7 @@ public class BinanceTradeService {
         Map<String, String> balances = new LinkedHashMap<>();
         try {
             JsonNode resp = signedGet("/api/v3/account", Collections.emptyMap());
-            log.info("接口获取账户余额: {}", resp);
+            // log.info("接口获取账户余额: {}", resp);
             if (resp == null) return balances;
 
             JsonNode list = resp.get("balances");
@@ -193,7 +193,9 @@ public class BinanceTradeService {
      * 获取 USDT 余额
      */
     public double getUsdtBalance() {
-        return getAssetBalance("USDT");
+        var asset = getAssetBalance("USDT");
+        log.info("获取实际币安账户余额显示USDT： {}", asset);
+        return asset;
     }
 
     // ==================== 签名请求 ====================
