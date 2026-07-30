@@ -233,7 +233,11 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="skipReason" label="原因" min-width="140" show-overflow-tooltip />
+        <el-table-column label="原因" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.status === 'ACCEPTED' ? '信号满足，已开仓' : (row.skipReason || '-') }}
+          </template>
+        </el-table-column>
         <el-table-column label="时间" min-width="155">
           <template #default="{ row }">{{ formatTime(row.detectTime) }}</template>
         </el-table-column>
