@@ -155,6 +155,7 @@ public class BinanceTradeService {
         Map<String, String> balances = new LinkedHashMap<>();
         try {
             JsonNode resp = signedGet("/api/v3/account", Collections.emptyMap());
+            log.info("接口获取账户余额: {}", resp);
             if (resp == null) return balances;
 
             JsonNode list = resp.get("balances");
