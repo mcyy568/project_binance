@@ -372,9 +372,13 @@ public class StrategyService {
                         }
                         log.info("Binance 平仓成功: {} SELL orderId={} 价格={}",
                                 pos.getSymbol(), closeOrderId, closePrice);
+                    } else {
+                        log.error("Binance 平仓被拒绝 {}: API 返回错误，持仓保持不动请手动处理", pos.getSymbol());
+                        return;
                     }
                 } catch (Exception ex) {
-                    log.error("Binance 卖出失败 {}: {}，仍按本地平仓", pos.getSymbol(), ex.getMessage());
+                    log.error("Binance 卖出异常 {}: {}，持仓保持不动请手动处理", pos.getSymbol(), ex.getMessage());
+                    return;
                 }
             }
 
