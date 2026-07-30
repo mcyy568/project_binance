@@ -363,14 +363,10 @@ public class BinanceTradeService {
         if (value == (long) value) {
             return String.format("%d", (long) value);
         }
-        // 根据大小决定小数位数
-        if (Math.abs(value) < 0.001) {
-            return String.format("%.8f", value);
-        } else if (Math.abs(value) < 1) {
-            return String.format("%.6f", value);
-        } else {
-            return String.format("%.4f", value);
-        }
+        // 保留完整精度（8位），去除尾随零
+        String s = String.format("%.8f", value);
+        s = s.replaceAll("0+$", "").replaceAll("\\.$", "");
+        return s;
     }
 
     /**

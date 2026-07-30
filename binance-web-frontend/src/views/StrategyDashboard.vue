@@ -333,15 +333,15 @@ function formatDate(val) {
   return formatTime(val).substring(0, 10)
 }
 
-// 数量格式化：保留有效位数
+// 数量格式化：不做截断，保持完整精度
 function formatQty(val) {
   if (!val) return '-'
   const n = Number(val)
-  if (isNaN(n)) return val
-  if (n >= 1000) return n.toFixed(2)
-  if (n >= 1) return n.toFixed(4)
-  if (n >= 0.001) return n.toFixed(6)
-  return n.toFixed(8)
+  if (isNaN(n)) return String(val)
+  // 直接转字符串保留完整精度，去除尾随零
+  let s = n.toFixed(8)
+  s = s.replace(/0+$/, '').replace(/\.$/, '')
+  return s
 }
 
 async function refreshAll() {
