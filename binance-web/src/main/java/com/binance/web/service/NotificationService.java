@@ -44,13 +44,13 @@ public class NotificationService {
     private String mailFrom;
 
     /**
-     * 检查高分推荐（>= 70）并发送通知
+     * 检查高分推荐（>= 80）并发送通知
      */
     public void notifyHighScore(List<Recommendation> recommendations) {
         if (recommendations == null || recommendations.isEmpty()) return;
 
         List<Recommendation> highScore = recommendations.stream()
-                .filter(r -> r.getScore() >= 70)
+                .filter(r -> r.getScore() >= 80)
                 .toList();
 
         List<Recommendation> toNotify = new ArrayList<>();
@@ -68,7 +68,7 @@ public class NotificationService {
     }
 
     /**
-     * 检查收藏币种评分 <= 70 并发送通知
+     * 检查收藏币种评分 <= 80 并发送通知
      */
     public void notifyFavDrop(List<Recommendation> recommendations) {
         if (recommendations == null || recommendations.isEmpty()) return;
@@ -76,10 +76,10 @@ public class NotificationService {
         List<FavoriteCoin> favs = favoriteMapper.findAll();
         Set<String> favSymbols = favs.stream().map(FavoriteCoin::getSymbol).collect(Collectors.toSet());
 
-        // 从扫描结果中找收藏币种评分 <= 70
+        // 从扫描结果中找收藏币种评分 <= 80
         List<Recommendation> dropped = recommendations.stream()
                 .filter(r -> favSymbols.contains(r.getSymbol()))
-                .filter(r -> r.getScore() <= 70)
+                .filter(r -> r.getScore() <= 80)
                 .toList();
 
         List<Recommendation> toNotify = new ArrayList<>();
@@ -111,7 +111,7 @@ public class NotificationService {
             helper.setSubject(String.format("[Binance] %s 高分推荐通知（%d条）",
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm")), list.size()));
 
-            String html = buildTableHtml("以下币种评分 >= 70，建议关注：", "#fff3cd", list);
+            String html = buildTableHtml("以下币种评分 >= 80，建议关注：", "#fff3cd", list);
             helper.setText(html, true);
             mailSender.send(msg);
             log.info("高分通知邮件已发送：{} 个币种 -> {}", list.size(), to);
@@ -135,7 +135,7 @@ public class NotificationService {
             helper.setSubject(String.format("[Binance] %s 收藏币种评分下降提醒（%d条）",
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm")), list.size()));
 
-            String html = buildTableHtml("以下收藏币种评分已降至 <= 70，请注意风险：", "#f8d7da", list);
+            String html = buildTableHtml("以下收藏币种评分已降至 <= 80，请注意风险：", "#f8d7da", list);
             helper.setText(html, true);
             mailSender.send(msg);
             log.info("收藏下跌通知邮件已发送：{} 个币种 -> {}", list.size(), to);
@@ -153,6 +153,38 @@ public class NotificationService {
             return String.format("%.6f", p);
         } catch (NumberFormatException e) {
             return price;
+        }
+    }
+
+    private String formatPercent(String val) {
+        if (val == null) return "-";
+        try {
+            double v = Double.parseDouble(val);
+            return String.format("%.2f%%", v);
+        } catch (NumberFormatException e) {
+            return val;
+        }
+    }
+
+    private String formatVolume(String val) {
+        if (val == null) return "-";
+        try {
+            double v = Double.parseDouble(val);
+            if (v >= 1_000_000_000) return String.format("%.2fB", v / 1_000_000_000);
+            if (v >= 1_000_000) return String.format("%.2fM", v / 1_000_000);
+            if (v >= 1_000) return String.format("%.2fK", v / 1_000);
+            return String.format("%.2f", v);
+        } catch (NumberFormatException e) {
+            return val;
+        }
+    }
+
+    private double tryParseDouble(String val) {
+        if (val == null) return 0;
+        try {
+            return Double.parseDouble(val);
+        } catch (NumberFormatException e) {
+            return 0;
         }
     }
 
@@ -182,11 +214,14 @@ public class NotificationService {
         // 表头
         sb.append("<thead>");
         sb.append("<tr style='background-color: ").append(headerBg).append("; border: 1px solid #ddd;'>");
-        sb.append("<th style='padding: 10px 14px; text-align: left; border: 1px solid #ddd; font-size: 13px;'>币种</th>");
-        sb.append("<th style='padding: 10px 14px; text-align: left; border: 1px solid #ddd; font-size: 13px;'>方向</th>");
-        sb.append("<th style='padding: 10px 14px; text-align: left; border: 1px solid #ddd; font-size: 13px;'>评分</th>");
-        sb.append("<th style='padding: 10px 14px; text-align: left; border: 1px solid #ddd; font-size: 13px;'>价格</th>");
-        sb.append("<th style='padding: 10px 14px; text-align: left; border: 1px solid #ddd; font-size: 13px;'>理由</th>");
+        sb.append("<th style='padding: 8px 10px; text-align: left; border: 1px solid #ddd; font-size: 12px;'>币种</th>");
+        sb.append("<th style='padding: 8px 10px; text-align: left; border: 1px solid #ddd; font-size: 12px;'>方向</th>");
+        sb.append("<th style='padding: 8px 10px; text-align: left; border: 1px solid #ddd; font-size: 12px;'>评分</th>");
+        sb.append("<th style='padding: 8px 10px; text-align: left; border: 1px solid #ddd; font-size: 12px;'>价格</th>");
+        sb.append("<th style='padding: 8px 10px; text-align: left; border: 1px solid #ddd; font-size: 12px;'>24h涨跌</th>");
+        sb.append("<th style='padding: 8px 10px; text-align: left; border: 1px solid #ddd; font-size: 12px;'>24h成交量</th>");
+        sb.append("<th style='padding: 8px 10px; text-align: left; border: 1px solid #ddd; font-size: 12px;'>信号</th>");
+        sb.append("<th style='padding: 8px 10px; text-align: left; border: 1px solid #ddd; font-size: 12px;'>理由</th>");
         sb.append("</tr>");
         sb.append("</thead>");
 
@@ -198,17 +233,27 @@ public class NotificationService {
             String direction = "LONG".equals(r.getDirection()) ? "做多" : "做空";
             String dirColor = "LONG".equals(r.getDirection()) ? "#28a745" : "#dc3545";
             String scoreColor = r.getScore() >= 80 ? "#28a745" : r.getScore() >= 70 ? "#ffc107" : "#dc3545";
+            // 24h涨跌幅颜色
+            double change24h = tryParseDouble(r.getChange24h());
+            String changeColor = change24h > 0 ? "#28a745" : change24h < 0 ? "#dc3545" : "#666";
+            String changeSign = change24h > 0 ? "+" : "";
 
             sb.append("<tr style='background-color: ").append(rowBg).append("; border: 1px solid #ddd;'>");
-            sb.append("<td style='padding: 8px 14px; border: 1px solid #ddd; font-weight: bold;'>")
+            sb.append("<td style='padding: 6px 10px; border: 1px solid #ddd; font-weight: bold;'>")
               .append(r.getBaseAsset()).append("</td>");
-            sb.append("<td style='padding: 8px 14px; border: 1px solid #ddd; color: ").append(dirColor)
+            sb.append("<td style='padding: 6px 10px; border: 1px solid #ddd; color: ").append(dirColor)
               .append("; font-weight: bold;'>").append(direction).append("</td>");
-            sb.append("<td style='padding: 8px 14px; border: 1px solid #ddd; color: ").append(scoreColor)
+            sb.append("<td style='padding: 6px 10px; border: 1px solid #ddd; color: ").append(scoreColor)
               .append("; font-weight: bold;'>").append(r.getScore()).append("</td>");
-            sb.append("<td style='padding: 8px 14px; border: 1px solid #ddd;'>$")
+            sb.append("<td style='padding: 6px 10px; border: 1px solid #ddd;'>$")
               .append(formatPrice(r.getPrice())).append("</td>");
-            sb.append("<td style='padding: 8px 14px; border: 1px solid #ddd;'>")
+            sb.append("<td style='padding: 6px 10px; border: 1px solid #ddd; color: ").append(changeColor)
+              .append(";'>").append(changeSign).append(formatPercent(r.getChange24h())).append("</td>");
+            sb.append("<td style='padding: 6px 10px; border: 1px solid #ddd;'>")
+              .append(formatVolume(r.getVolume())).append("</td>");
+            sb.append("<td style='padding: 6px 10px; border: 1px solid #ddd;'>")
+              .append(r.getSignal() != null ? r.getSignal() : "").append("</td>");
+            sb.append("<td style='padding: 6px 10px; border: 1px solid #ddd;'>")
               .append(r.getReason() != null ? r.getReason() : "").append("</td>");
             sb.append("</tr>");
         }
