@@ -386,6 +386,7 @@ public class StrategyService {
             trade.setStrategyName(pos.getStrategyName());
             trade.setDirection(pos.getDirection());
             trade.setMargin(pos.getMargin());
+            trade.setExecutedQty(pos.getExecutedQty());
             trade.setLeverage(pos.getLeverage());
             trade.setOpenPrice(pos.getOpenPrice());
             trade.setClosePrice(closePrice);

@@ -83,20 +83,20 @@
       <!-- 每日统计 -->
       <el-card class="section-card">
         <template #header><span>每日统计</span></template>
-        <el-table :data="dailyStats" stripe size="small" max-height="350" class="compact-table">
+        <el-table :data="dailyStats" stripe size="small" max-height="350" class="compact-table" align="center">
           <el-table-column label="日期" min-width="110">
           <template #default="{ row }">{{ formatDate(row.date) }}</template>
         </el-table-column>
-          <el-table-column prop="count" label="笔数" min-width="55" align="center" />
-          <el-table-column label="盈亏" min-width="105" align="right">
+          <el-table-column prop="count" label="笔数" min-width="55" />
+          <el-table-column label="盈亏" min-width="105">
             <template #default="{ row }">
               <span :class="(row.pnl || 0) >= 0 ? 'up' : 'down'">{{ (row.pnl || 0).toFixed(2) }}U</span>
             </template>
           </el-table-column>
-          <el-table-column label="胜率" min-width="65" align="center">
+          <el-table-column label="胜率" min-width="65">
             <template #default="{ row }">{{ row.winRate }}%</template>
           </el-table-column>
-          <el-table-column label="止损率" min-width="70" align="center">
+          <el-table-column label="止损率" min-width="70">
             <template #default="{ row }">{{ row.stopLossRate }}%</template>
           </el-table-column>
         </el-table>
@@ -113,32 +113,38 @@
           </div>
         </div>
       </template>
-      <el-table :data="positions" stripe size="small" max-height="300" class="compact-table">
+      <el-table :data="positions" stripe size="small" max-height="300" class="compact-table" align="center">
         <el-table-column prop="baseAsset" label="币种" min-width="70" />
         <el-table-column prop="symbol" label="交易对" min-width="100" />
         <el-table-column prop="strategyName" label="策略" min-width="80" />
-        <el-table-column label="方向" min-width="60" align="center">
+        <el-table-column label="方向" min-width="60">
           <template #default="{ row }">
             <el-tag :type="row.direction === 'LONG' ? 'success' : 'danger'" size="small">{{ row.direction === 'LONG' ? '做多' : '做空' }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="executedQty" label="购买数量" min-width="100">
+          <template #default="{ row }">{{ formatQty(row.executedQty) }}</template>
+        </el-table-column>
+        <el-table-column label="金额" min-width="90">
+          <template #default="{ row }">{{ (row.margin || 0).toFixed(2) }} USDT</template>
+        </el-table-column>
         <el-table-column prop="openPrice" label="开仓价" min-width="90" />
         <el-table-column prop="currentPrice" label="现值估价" min-width="90" />
-        <el-table-column label="浮动盈亏" min-width="100" align="right">
+        <el-table-column label="浮动盈亏" min-width="100">
           <template #default="{ row }">
             <span :class="(row.unrealizedPnl || 0) >= 0 ? 'up' : 'down'">
               {{ (row.unrealizedPnl || 0) >= 0 ? '+' : '' }}{{ (row.unrealizedPnl || 0).toFixed(2) }}U
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="盈亏率" min-width="75" align="right">
+        <el-table-column label="盈亏率" min-width="75">
           <template #default="{ row }">
             <span :class="(row.pnlPct || 0) >= 0 ? 'up' : 'down'">
               {{ (row.pnlPct || 0).toFixed(2) }}%
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="最高浮盈" min-width="90" align="right">
+        <el-table-column label="最高浮盈" min-width="90">
           <template #default="{ row }"><span class="up">{{ (row.highestPnl || 0).toFixed(2) }}U</span></template>
         </el-table-column>
         <el-table-column label="开仓时间" min-width="155">
@@ -165,23 +171,29 @@
           </el-radio-group>
         </div>
       </template>
-      <el-table :data="trades" stripe size="small" max-height="400" class="compact-table">
+      <el-table :data="trades" stripe size="small" max-height="400" class="compact-table" align="center">
         <el-table-column type="index" label="#" width="45" />
         <el-table-column prop="baseAsset" label="币种" min-width="65" />
         <el-table-column prop="strategyName" label="策略" min-width="80" />
-        <el-table-column label="方向" min-width="60" align="center">
+        <el-table-column label="方向" min-width="60">
           <template #default="{ row }">
             <el-tag :type="row.direction === 'LONG' ? 'success' : 'danger'" size="small">{{ row.direction === 'LONG' ? '做多' : '做空' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="盈亏" min-width="100" align="right">
+        <el-table-column prop="executedQty" label="购买数量" min-width="90">
+          <template #default="{ row }">{{ formatQty(row.executedQty) }}</template>
+        </el-table-column>
+        <el-table-column label="金额" min-width="85">
+          <template #default="{ row }">{{ (row.margin || 0).toFixed(0) }} USDT</template>
+        </el-table-column>
+        <el-table-column label="盈亏" min-width="100">
           <template #default="{ row }">
             <span :class="(row.pnl || 0) >= 0 ? 'up' : 'down'">
               {{ (row.pnl || 0) >= 0 ? '+' : '' }}{{ (row.pnl || 0).toFixed(2) }}U
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="盈利率" min-width="75" align="right">
+        <el-table-column label="盈利率" min-width="75">
           <template #default="{ row }">
             <span :class="(row.pnlPct || 0) >= 0 ? 'up' : 'down'">{{ (row.pnlPct || 0).toFixed(1) }}%</span>
           </template>
@@ -202,9 +214,9 @@
     <!-- 信号记录 -->
     <el-card class="section-card" v-if="signals.length > 0">
       <template #header><span>近期信号</span></template>
-      <el-table :data="signals" stripe size="small" max-height="300" class="compact-table">
+      <el-table :data="signals" stripe size="small" max-height="300" class="compact-table" align="center">
         <el-table-column prop="baseAsset" label="币种" min-width="65" />
-        <el-table-column prop="direction" label="方向" min-width="55" align="center">
+        <el-table-column prop="direction" label="方向" min-width="55">
           <template #default="{ row }">
             <el-tag :type="row.direction === 'LONG' ? 'success' : 'danger'" size="small">{{ row.direction === 'LONG' ? '多' : '空' }}</el-tag>
           </template>
@@ -213,8 +225,8 @@
         <el-table-column prop="mode" label="模式" min-width="65">
           <template #default="{ row }">{{ row.mode === 'EARLY' ? '早段' : '高位' }}</template>
         </el-table-column>
-        <el-table-column prop="score" label="评分" min-width="55" align="center" />
-        <el-table-column label="状态" min-width="75" align="center">
+        <el-table-column prop="score" label="评分" min-width="55" />
+        <el-table-column label="状态" min-width="75">
           <template #default="{ row }">
             <el-tag :type="row.status === 'ACCEPTED' ? 'success' : 'info'" size="small">
               {{ row.status === 'ACCEPTED' ? '已接受' : '已跳过' }}
@@ -315,6 +327,17 @@ function formatTime(val) {
 function formatDate(val) {
   if (!val) return '-'
   return formatTime(val).substring(0, 10)
+}
+
+// 数量格式化：保留有效位数
+function formatQty(val) {
+  if (!val) return '-'
+  const n = Number(val)
+  if (isNaN(n)) return val
+  if (n >= 1000) return n.toFixed(2)
+  if (n >= 1) return n.toFixed(4)
+  if (n >= 0.001) return n.toFixed(6)
+  return n.toFixed(8)
 }
 
 async function refreshAll() {

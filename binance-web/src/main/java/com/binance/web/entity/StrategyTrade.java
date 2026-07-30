@@ -24,6 +24,9 @@ public class StrategyTrade {
     /** 保证金 */
     private Double margin;
 
+    /** 实际成交数量（币本位） */
+    private String executedQty;
+
     /** 杠杆倍数 */
     private Integer leverage;
 

@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS strategy_trade (
     strategy_name   VARCHAR(50)  DEFAULT NULL COMMENT '策略名称',
     direction       VARCHAR(10)  DEFAULT NULL COMMENT '方向',
     margin          DOUBLE       DEFAULT 0 COMMENT '保证金',
+    executed_qty    VARCHAR(32)  DEFAULT NULL COMMENT '实际成交数量',
     leverage        INT          DEFAULT 20 COMMENT '杠杆',
     open_price      VARCHAR(32)  DEFAULT NULL COMMENT '开仓价',
     close_price     VARCHAR(32)  DEFAULT NULL COMMENT '平仓价',

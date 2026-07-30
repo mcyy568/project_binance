@@ -74,10 +74,10 @@ public interface StrategyMapper {
 
     // ==================== 交易记录 ====================
 
-    @Insert("INSERT INTO strategy_trade (symbol, base_asset, strategy_name, direction, margin, leverage, " +
+    @Insert("INSERT INTO strategy_trade (symbol, base_asset, strategy_name, direction, margin, executed_qty, leverage, " +
             "open_price, close_price, pnl, pnl_pct, highest_pnl, max_adverse, hold_duration, " +
             "close_reason, open_time, close_time) " +
-            "VALUES (#{symbol}, #{baseAsset}, #{strategyName}, #{direction}, #{margin}, #{leverage}, " +
+            "VALUES (#{symbol}, #{baseAsset}, #{strategyName}, #{direction}, #{margin}, #{executedQty}, #{leverage}, " +
             "#{openPrice}, #{closePrice}, #{pnl}, #{pnlPct}, #{highestPnl}, #{maxAdverse}, #{holdDuration}, " +
             "#{closeReason}, #{openTime}, #{closeTime})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
