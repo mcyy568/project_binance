@@ -70,9 +70,19 @@ public class CoinService {
         return new HashSet<>(coinCache.keySet());
     }
 
-    /** 获取单个交易对信息 */
+    /** 获取单个交易对信息（缓存为空时自动刷新） */
     public CoinInfo getCoinInfo(String symbol) {
-        return coinCache.get(symbol.toUpperCase());
+        if (coinCache.isEmpty()) {
+            refreshCoinList();
+        }
+        CoinInfo info = coinCache.get(symbol.toUpperCase());
+        if (info == null) {
+            // 缓存中不存在，尝试强制刷新后重试
+            log.debug("{} 不在缓存中，尝试刷新交易对列表", symbol);
+            refreshCoinList();
+            info = coinCache.get(symbol.toUpperCase());
+        }
+        return info;
     }
 
     /** 获取币种列表 */

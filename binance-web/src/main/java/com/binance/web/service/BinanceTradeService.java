@@ -79,18 +79,55 @@ public class BinanceTradeService {
 
     /**
      * 按 LOT_SIZE stepSize 向下截断数量（避免超出余额，不会四舍五入导致超卖）
+     * 缓存查不到 stepSize 时会自动去 Binance 实时获取
      */
     public double truncateQtyByStepSize(String symbol, double quantity) {
-        CoinInfo coin = coinService.getCoinInfo(symbol);
-        if (coin == null || coin.getStepSize() == null) {
+        String stepSizeStr = getStepSize(symbol);
+        if (stepSizeStr == null) {
+            log.warn("{} 无法获取 stepSize，使用原始数量 {}", symbol, quantity);
             return quantity;
         }
         java.math.BigDecimal qty = java.math.BigDecimal.valueOf(quantity);
-        java.math.BigDecimal step = new java.math.BigDecimal(coin.getStepSize());
+        java.math.BigDecimal step = new java.math.BigDecimal(stepSizeStr);
         // floor(qty / step) * step → 向下取整到 stepSize 倍数
         java.math.BigDecimal truncated = qty.divide(step, 0, java.math.RoundingMode.FLOOR).multiply(step);
-        log.debug("truncateQty {}: {} / stepSize {} → {}", symbol, quantity, coin.getStepSize(), truncated);
+        log.info("truncateQty {}: {} / stepSize {} → {}", symbol, quantity, stepSizeStr, truncated);
         return truncated.doubleValue();
+    }
+
+    /**
+     * 获取交易对的 LOT_SIZE stepSize，优先缓存，查不到则实时请求
+     */
+    private String getStepSize(String symbol) {
+        String sym = symbol.toUpperCase();
+        // 优先从缓存获取
+        CoinInfo coin = coinService.getCoinInfo(sym);
+        if (coin != null && coin.getStepSize() != null) {
+            return coin.getStepSize();
+        }
+        // 兜底：直接请求 Binance exchangeInfo
+        try {
+            String url = binanceProperties.getBaseUrl() + "/api/v3/exchangeInfo?symbol=" + sym;
+            ResponseEntity<String> resp = restTemplate.getForEntity(url, String.class);
+            if (resp.getStatusCode().is2xxSuccessful() && resp.getBody() != null) {
+                JsonNode root = objectMapper.readTree(resp.getBody());
+                JsonNode symbols = root.get("symbols");
+                if (symbols != null && symbols.isArray() && symbols.size() > 0) {
+                    JsonNode s = symbols.get(0);
+                    JsonNode filters = s.get("filters");
+                    if (filters != null && filters.isArray()) {
+                        for (JsonNode f : filters) {
+                            if ("LOT_SIZE".equals(f.get("filterType").asText())) {
+                                return f.get("stepSize").asText();
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("获取 {} LOT_SIZE 失败: {}", sym, e.getMessage());
+        }
+        return null;
     }
 
     /**
