@@ -65,7 +65,8 @@ public interface StrategyMapper {
     int countOpenBySymbol(@Param("symbol") String symbol);
 
     @Update("UPDATE strategy_position SET current_price=#{currentPrice}, unrealized_pnl=#{unrealizedPnl}, " +
-            "pnl_pct=#{pnlPct}, highest_pnl=#{highestPnl}, max_adverse=#{maxAdverse}, update_time=NOW() " +
+            "pnl_pct=#{pnlPct}, highest_pnl=#{highestPnl}, max_adverse=#{maxAdverse}, " +
+            "executed_qty=#{executedQty}, update_time=NOW() " +
             "WHERE id=#{id}")
     int updatePositionPnL(StrategyPosition position);
 

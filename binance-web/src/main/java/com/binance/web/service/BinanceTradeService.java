@@ -148,14 +148,13 @@ public class BinanceTradeService {
     // ==================== 账户信息 ====================
 
     /**
-     * 获取账户余额
+     * 获取账户余额（仅可用余额）
      * @return {USDT: "5000.00", BTC: "0.01", ...}
      */
     public Map<String, String> getBalances() {
         Map<String, String> balances = new LinkedHashMap<>();
         try {
-            JsonNode resp = signedGet("/api/v3/account", Collections.emptyMap());
-            // log.info("接口获取账户余额: {}", resp);
+            JsonNode resp = fetchAccountSnapshot();
             if (resp == null) return balances;
 
             JsonNode list = resp.get("balances");
@@ -187,6 +186,43 @@ public class BinanceTradeService {
             }
         }
         return 0;
+    }
+
+    /**
+     * 获取账户完整快照（含 free/locked），带缓存避免频繁调用
+     * @return {BTC: {free: "0.01", locked: "0.00"}, ...}
+     */
+    public Map<String, Map<String, String>> getFullBalances() {
+        Map<String, Map<String, String>> result = new LinkedHashMap<>();
+        try {
+            JsonNode resp = fetchAccountSnapshot();
+            if (resp == null) return result;
+
+            JsonNode list = resp.get("balances");
+            if (list != null && list.isArray()) {
+                for (JsonNode b : list) {
+                    String asset = b.get("asset").asText();
+                    double free = b.get("free").asDouble();
+                    double locked = b.get("locked").asDouble();
+                    if (free > 0 || locked > 0) {
+                        Map<String, String> info = new LinkedHashMap<>();
+                        info.put("free", formatDecimal(free));
+                        info.put("locked", formatDecimal(locked));
+                        result.put(asset, info);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("获取账户完整余额失败: {}", e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * 获取 Binance 账户快照原始响应
+     */
+    private JsonNode fetchAccountSnapshot() {
+        return signedGet("/api/v3/account", Collections.emptyMap());
     }
 
     /**

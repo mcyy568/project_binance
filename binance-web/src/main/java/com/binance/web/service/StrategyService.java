@@ -185,6 +185,14 @@ public class StrategyService {
      */
     private void updateAllPositions() {
         List<StrategyPosition> positions = strategyMapper.findOpenPositions();
+        // 一次性获取币安全部余额，避免每个持仓单独请求
+        Map<String, Map<String, String>> binanceBalances = null;
+        try {
+            binanceBalances = binanceTradeService.getFullBalances();
+        } catch (Exception e) {
+            log.warn("获取币安账户余额失败: {}", e.getMessage());
+        }
+
         for (StrategyPosition pos : positions) {
             try {
                 Map<String, String> ticker = fetchTicker(pos.getSymbol());
@@ -212,6 +220,17 @@ public class StrategyService {
                 // 更新最大逆向
                 if (pos.getUnrealizedPnl() < pos.getMaxAdverse()) {
                     pos.setMaxAdverse(pos.getUnrealizedPnl());
+                }
+
+                // 从币安实时同步实际持仓数量
+                if (binanceBalances != null) {
+                    Map<String, String> assetInfo = binanceBalances.get(pos.getBaseAsset());
+                    if (assetInfo != null) {
+                        pos.setExecutedQty(assetInfo.get("free"));
+                    } else {
+                        // 币安没有该资产，可能已被手动卖出
+                        pos.setExecutedQty("0");
+                    }
                 }
 
                 strategyMapper.updatePositionPnL(pos);
@@ -357,28 +376,38 @@ public class StrategyService {
 
             // 执行真实市价卖出（LONG 仓位）
             Long closeOrderId = null;
-            if ("LONG".equalsIgnoreCase(pos.getDirection()) && pos.getExecutedQty() != null) {
-                try {
-                    double qty = Double.parseDouble(pos.getExecutedQty());
-                    Map<String, String> sellResult = binanceTradeService.marketSell(pos.getSymbol(), qty);
-                    if (sellResult != null) {
-                        closeOrderId = Long.parseLong(sellResult.get("orderId"));
-                        // 使用实际成交价
-                        String sellPrice = sellResult.get("avgPrice");
-                        if (sellPrice != null && !"0".equals(sellPrice)) {
-                            closePrice = sellPrice;
-                            closeP = Double.parseDouble(closePrice);
-                            finalPnl = (closeP - openP) / openP * pos.getMargin();
+            if ("LONG".equalsIgnoreCase(pos.getDirection())) {
+                // 从币安实时获取该币种可用余额，不依赖 DB 缓存的 executedQty
+                double actualBalance = binanceTradeService.getAssetBalance(pos.getBaseAsset());
+                log.info("币安实时 {} 可用余额: {}，DB 记录: {}",
+                        pos.getBaseAsset(), actualBalance, pos.getExecutedQty());
+
+                if (actualBalance <= 0) {
+                    log.warn("币安 {} 可用余额为 0，可能已被手动卖出，仅关闭本地持仓记录", pos.getSymbol());
+                } else {
+                    try {
+                        Map<String, String> sellResult = binanceTradeService.marketSell(pos.getSymbol(), actualBalance);
+                        if (sellResult != null) {
+                            closeOrderId = Long.parseLong(sellResult.get("orderId"));
+                            // 更新实际成交数量
+                            pos.setExecutedQty(sellResult.get("executedQty"));
+                            // 使用实际成交价
+                            String sellPrice = sellResult.get("avgPrice");
+                            if (sellPrice != null && !"0".equals(sellPrice)) {
+                                closePrice = sellPrice;
+                                closeP = Double.parseDouble(closePrice);
+                                finalPnl = (closeP - openP) / openP * pos.getMargin();
+                            }
+                            log.info("Binance 平仓成功: {} SELL orderId={} 数量={} 价格={}",
+                                    pos.getSymbol(), closeOrderId, sellResult.get("executedQty"), closePrice);
+                        } else {
+                            log.error("Binance 平仓被拒绝 {}: API 返回错误，持仓保持不动请手动处理", pos.getSymbol());
+                            return;
                         }
-                        log.info("Binance 平仓成功: {} SELL orderId={} 价格={}",
-                                pos.getSymbol(), closeOrderId, closePrice);
-                    } else {
-                        log.error("Binance 平仓被拒绝 {}: API 返回错误，持仓保持不动请手动处理", pos.getSymbol());
+                    } catch (Exception ex) {
+                        log.error("Binance 卖出异常 {}: {}，持仓保持不动请手动处理", pos.getSymbol(), ex.getMessage());
                         return;
                     }
-                } catch (Exception ex) {
-                    log.error("Binance 卖出异常 {}: {}，持仓保持不动请手动处理", pos.getSymbol(), ex.getMessage());
-                    return;
                 }
             }
 
@@ -544,7 +573,22 @@ public class StrategyService {
     }
 
     public List<StrategyPosition> getOpenPositions() {
-        return strategyMapper.findOpenPositions();
+        List<StrategyPosition> positions = strategyMapper.findOpenPositions();
+        // 用币安实时余额同步所有持仓数量
+        try {
+            Map<String, Map<String, String>> binanceBalances = binanceTradeService.getFullBalances();
+            for (StrategyPosition pos : positions) {
+                Map<String, String> assetInfo = binanceBalances.get(pos.getBaseAsset());
+                if (assetInfo != null) {
+                    pos.setExecutedQty(assetInfo.get("free"));
+                } else {
+                    pos.setExecutedQty("0");
+                }
+            }
+        } catch (Exception e) {
+            log.warn("获取币安实时余额失败: {}", e.getMessage());
+        }
+        return positions;
     }
 
     public List<StrategyTrade> getRecentTrades(String filter) {
