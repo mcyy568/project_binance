@@ -22,4 +22,10 @@ public class CoinInfo {
     private Long quoteAssetPrecision;
     /** 最新价格 */
     private String price;
+    /** LOT_SIZE 步长（最小变动单位） */
+    private String stepSize;
+    /** LOT_SIZE 最小数量 */
+    private String minQty;
+    /** LOT_SIZE 最大数量 */
+    private String maxQty;
 }

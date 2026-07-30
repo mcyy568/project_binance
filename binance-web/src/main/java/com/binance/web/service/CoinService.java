@@ -70,6 +70,11 @@ public class CoinService {
         return new HashSet<>(coinCache.keySet());
     }
 
+    /** 获取单个交易对信息 */
+    public CoinInfo getCoinInfo(String symbol) {
+        return coinCache.get(symbol.toUpperCase());
+    }
+
     /** 获取币种列表 */
     public List<CoinInfo> getCoinList() {
         List<CoinInfo> cachedList = new ArrayList<>(coinCache.values());
@@ -252,6 +257,18 @@ public class CoinService {
                     }
                     if (s.hasNonNull("quoteAssetPrecision")) {
                         coin.setQuoteAssetPrecision(s.get("quoteAssetPrecision").asLong());
+                    }
+                    // 解析 LOT_SIZE 过滤器
+                    JsonNode filters = s.get("filters");
+                    if (filters != null && filters.isArray()) {
+                        for (JsonNode f : filters) {
+                            if ("LOT_SIZE".equals(f.get("filterType").asText())) {
+                                coin.setStepSize(f.get("stepSize").asText());
+                                coin.setMinQty(f.get("minQty").asText());
+                                coin.setMaxQty(f.get("maxQty").asText());
+                                break;
+                            }
+                        }
                     }
                     coin.setPrice(priceMap.getOrDefault(coin.getSymbol(), "0"));
                     list.add(coin);

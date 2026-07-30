@@ -1,6 +1,7 @@
 package com.binance.web.service;
 
 import com.binance.web.config.BinanceProperties;
+import com.binance.web.entity.CoinInfo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,9 @@ public class BinanceTradeService {
     @Autowired
     private BinanceProperties binanceProperties;
 
+    @Autowired
+    private CoinService coinService;
+
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final String HMAC_SHA256 = "HmacSHA256";
 
@@ -45,8 +49,9 @@ public class BinanceTradeService {
      * @return {orderId, symbol, executedQty, cummulativeQuoteQty, price, status} 或 null
      */
     public Map<String, String> marketBuy(String symbol, double quoteOrderQty) {
+        String sym = symbol.toUpperCase();
         Map<String, String> params = new LinkedHashMap<>();
-        params.put("symbol", symbol.toUpperCase());
+        params.put("symbol", sym);
         params.put("side", "BUY");
         params.put("type", "MARKET");
         params.put("quoteOrderQty", formatDecimal(quoteOrderQty));
@@ -54,18 +59,38 @@ public class BinanceTradeService {
     }
 
     /**
-     * 市价卖出（按币种数量）
+     * 市价卖出（按币种数量，自动按 LOT_SIZE stepSize 截断）
      * @param symbol   交易对，如 BTCUSDT
-     * @param quantity 卖出数量
+     * @param quantity 原始卖出数量
      * @return {orderId, symbol, executedQty, cummulativeQuoteQty, price, status} 或 null
      */
     public Map<String, String> marketSell(String symbol, double quantity) {
+        String sym = symbol.toUpperCase();
+        double truncated = truncateQtyByStepSize(sym, quantity);
+        log.info("marketSell {} 原始数量={} 截断后数量={}", sym, quantity, truncated);
+
         Map<String, String> params = new LinkedHashMap<>();
-        params.put("symbol", symbol.toUpperCase());
+        params.put("symbol", sym);
         params.put("side", "SELL");
         params.put("type", "MARKET");
-        params.put("quantity", formatDecimal(quantity));
+        params.put("quantity", formatDecimal(truncated));
         return placeOrder(params);
+    }
+
+    /**
+     * 按 LOT_SIZE stepSize 向下截断数量（避免超出余额，不会四舍五入导致超卖）
+     */
+    public double truncateQtyByStepSize(String symbol, double quantity) {
+        CoinInfo coin = coinService.getCoinInfo(symbol);
+        if (coin == null || coin.getStepSize() == null) {
+            return quantity;
+        }
+        java.math.BigDecimal qty = java.math.BigDecimal.valueOf(quantity);
+        java.math.BigDecimal step = new java.math.BigDecimal(coin.getStepSize());
+        // floor(qty / step) * step → 向下取整到 stepSize 倍数
+        java.math.BigDecimal truncated = qty.divide(step, 0, java.math.RoundingMode.FLOOR).multiply(step);
+        log.debug("truncateQty {}: {} / stepSize {} → {}", symbol, quantity, coin.getStepSize(), truncated);
+        return truncated.doubleValue();
     }
 
     /**
