@@ -197,11 +197,11 @@ public class StrategyService {
                 double curP = Double.parseDouble(currentPrice);
 
                 if ("SHORT".equals(pos.getDirection())) {
-                    pos.setUnrealizedPnl((openP - curP) / openP * pos.getMargin() * pos.getLeverage());
-                    pos.setPnlPct((openP - curP) / openP * pos.getLeverage() * 100);
+                    pos.setUnrealizedPnl((openP - curP) / openP * pos.getMargin());
+                    pos.setPnlPct((openP - curP) / openP * 100);
                 } else {
-                    pos.setUnrealizedPnl((curP - openP) / openP * pos.getMargin() * pos.getLeverage());
-                    pos.setPnlPct((curP - openP) / openP * pos.getLeverage() * 100);
+                    pos.setUnrealizedPnl((curP - openP) / openP * pos.getMargin());
+                    pos.setPnlPct((curP - openP) / openP * 100);
                 }
 
                 // 更新最高浮盈
@@ -322,11 +322,11 @@ public class StrategyService {
 
             double stopLossPct = config.getStopLossPct() / 100.0;
             if ("LONG".equals(signal.direction)) {
-                pos.setStopLossPrice(String.format("%.6f", openP * (1 - stopLossPct / config.getLeverage())));
-                pos.setProfitProtectPrice(String.format("%.6f", openP * (1 + config.getProfitProtectPct() / 100.0 / config.getLeverage())));
+                pos.setStopLossPrice(String.format("%.6f", openP * (1 - stopLossPct)));
+                pos.setProfitProtectPrice(String.format("%.6f", openP * (1 + config.getProfitProtectPct() / 100.0)));
             } else {
-                pos.setStopLossPrice(String.format("%.6f", openP * (1 + stopLossPct / config.getLeverage())));
-                pos.setProfitProtectPrice(String.format("%.6f", openP * (1 - config.getProfitProtectPct() / 100.0 / config.getLeverage())));
+                pos.setStopLossPrice(String.format("%.6f", openP * (1 + stopLossPct)));
+                pos.setProfitProtectPrice(String.format("%.6f", openP * (1 - config.getProfitProtectPct() / 100.0)));
             }
 
             strategyMapper.insertPosition(pos);
@@ -350,9 +350,9 @@ public class StrategyService {
             double finalPnl;
 
             if ("SHORT".equals(pos.getDirection())) {
-                finalPnl = (openP - closeP) / openP * pos.getMargin() * pos.getLeverage();
+                finalPnl = (openP - closeP) / openP * pos.getMargin();
             } else {
-                finalPnl = (closeP - openP) / openP * pos.getMargin() * pos.getLeverage();
+                finalPnl = (closeP - openP) / openP * pos.getMargin();
             }
 
             // 执行真实市价卖出（LONG 仓位）
@@ -368,7 +368,7 @@ public class StrategyService {
                         if (sellPrice != null && !"0".equals(sellPrice)) {
                             closePrice = sellPrice;
                             closeP = Double.parseDouble(closePrice);
-                            finalPnl = (closeP - openP) / openP * pos.getMargin() * pos.getLeverage();
+                            finalPnl = (closeP - openP) / openP * pos.getMargin();
                         }
                         log.info("Binance 平仓成功: {} SELL orderId={} 价格={}",
                                 pos.getSymbol(), closeOrderId, closePrice);
@@ -526,7 +526,7 @@ public class StrategyService {
         overview.put("totalTrades", totalTrades);
         overview.put("accountCapital", accountCapital);
         overview.put("totalPnl", totalPnl != null ? totalPnl : 0);
-        overview.put("netProfit", (totalPnl != null ? totalPnl : 0) + (accountCapital - 1000));
+        overview.put("netProfit", totalPnl != null ? totalPnl : 0);
         overview.put("winRate", totalTrades > 0 ? Math.round(winTrades * 1000.0 / totalTrades) / 10.0 : 0);
         overview.put("stopLossRate", totalTrades > 0 ?
                 Math.round((totalTrades - winTrades) * 1000.0 / totalTrades) / 10.0 : 0);
