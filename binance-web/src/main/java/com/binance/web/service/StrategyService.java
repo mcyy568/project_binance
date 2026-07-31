@@ -48,6 +48,9 @@ public class StrategyService {
     @Autowired
     private BinanceTradeService binanceTradeService;
 
+    @Autowired
+    private ScoringService scoringService;
+
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
             .withZone(ZoneId.of("Asia/Shanghai"));
@@ -167,8 +170,9 @@ public class StrategyService {
                     StrategySignal sig = buildSignal(symbol, baseAsset, signal, volatility24h, config.getMode(), "ACCEPTED", null);
                     sig.setProcessTime(LocalDateTime.now());
                     strategyMapper.insertSignal(sig);
-                    log.info("策略信号接受: {} {} 价格={} 模式={} score={}",
-                            symbol, signal.direction, signal.price, config.getMode(), signal.score);
+                    log.info("策略信号接受: {} {} 价格={} 模式={} score={} subtype={} ret1={:.2f}% ret5={:.2f}% relvol={:.2f}",
+                            symbol, signal.direction, signal.price, config.getMode(), signal.score,
+                            signal.subtype, signal.ret1, signal.ret5, signal.relvol);
                 }
 
             } catch (Exception e) {
@@ -241,7 +245,7 @@ public class StrategyService {
     }
 
     /**
-     * 检查退出条件：止损 / 利润保护回撤 / 动态退出
+     * 检查退出条件：止损 / 利润保护回撤 / 动态退出（按子类型差异化）
      */
     private void checkExitConditions() {
         List<StrategyPosition> positions = strategyMapper.findOpenPositions();
@@ -253,7 +257,7 @@ public class StrategyService {
 
                 String reason = null;
 
-                // 1. 止损检查
+                // 1. 止损检查（硬止损始终生效）
                 double lossPct = -(config.getStopLossPct());
                 if (pos.getPnlPct() <= lossPct) {
                     reason = "原定止损触发 (" + String.format("%.1f", pos.getPnlPct()) + "%)";
@@ -269,7 +273,21 @@ public class StrategyService {
                     }
                 }
 
-                // 3. 8小时未启动利润保护退出
+                // 3. 动态退出（基于子类型差异化的时间+利润条件）
+                if (reason == null) {
+                    double minutesOpen = Duration.between(pos.getOpenTime(), LocalDateTime.now()).toMinutes();
+                    double highestPnlPct = pos.getHighestPnl() / pos.getMargin() * 100;
+                    String subtype = extractSubtype(pos.getStrategyName());
+
+                    // 用当前1m K线重新评分（用于动态退出判断）
+                    String dynamicReason = scoringService.dynamicExitCheck(
+                            null, pos.getPnlPct(), highestPnlPct, minutesOpen, subtype);
+                    if (dynamicReason != null) {
+                        reason = dynamicReason;
+                    }
+                }
+
+                // 4. 8小时未启动利润保护退出（兜底）
                 if (reason == null) {
                     long hoursOpen = Duration.between(pos.getOpenTime(), LocalDateTime.now()).toHours();
                     if (hoursOpen >= 8 && pos.getHighestPnl() < pos.getMargin() * config.getProfitProtectPct() / 100) {
@@ -285,6 +303,17 @@ public class StrategyService {
                 log.debug("检查退出条件 {} 异常: {}", pos.getSymbol(), e.getMessage());
             }
         }
+    }
+
+    /** 从策略名中提取子类型 */
+    private String extractSubtype(String strategyName) {
+        if (strategyName == null) return "standard";
+        if (strategyName.contains("peak")) return "high_peak";
+        if (strategyName.contains("vol_break")) return "volume_break";
+        if (strategyName.contains("compression")) return "compression_break";
+        if (strategyName.contains("extension")) return "extension";
+        if (strategyName.contains("early")) return "early_stage";
+        return "standard";
     }
 
     // ==================== 开仓 ====================
@@ -324,7 +353,9 @@ public class StrategyService {
             StrategyPosition pos = new StrategyPosition();
             pos.setSymbol(symbol);
             pos.setBaseAsset(baseAsset);
-            pos.setStrategyName(config.getName());
+            // 策略名加入子类型标签（如 "早段动态_early_stage" / "高位保护_volume_break"）
+            String subtypeTag = signal.subtype != null ? "_" + signal.subtype : "";
+            pos.setStrategyName(config.getName() + subtypeTag);
             pos.setMargin(config.getPositionSize());
             pos.setLeverage(config.getLeverage());
             pos.setOpenPrice(String.format("%.6f", openP));
@@ -447,59 +478,34 @@ public class StrategyService {
         }
     }
 
-    // ==================== 信号检测 ====================
+    // ==================== 信号检测（多维评分引擎） ====================
 
     /**
-     * 基于1分钟K线检测入场信号
-     * 逻辑: 基于价格动量 + 成交量异动
+     * 基于1分钟K线 + 多维评分引擎检测入场信号
+     * 替代旧版简单动量检测，使用 fund_score / fast_score / quality_score / combined_score
      */
     private SignalResult detectSignal(List<KlineData> klines, Map<String, String> ticker) {
-        if (klines.size() < 10) return null;
+        // 调用多维评分引擎
+        ScoringService.ScoreResult score = scoringService.score1m(klines);
+        if (score == null || "NEUTRAL".equals(score.direction)) return null;
 
-        int n = klines.size();
-        // 最近3根K线的表现
-        List<KlineData> recent = klines.subList(n - 3, n);
-        List<KlineData> earlier = klines.subList(n - 10, n - 3);
+        // 入场确认
+        ScoringService.EntryConfirm confirm = scoringService.confirmEntry(score, "");
 
-        // 计算早期均值和近期均值
-        double earlyClose = calcAvgClose(earlier);
-        double recentClose = calcAvgClose(recent);
-
-        double momentum = (recentClose - earlyClose) / earlyClose * 100;
-
-        // 计算成交量比值
-        double recentVol = calcAvgVol(recent);
-        double earlyVol = calcAvgVol(earlier);
-        earlyVol = earlyVol > 0 ? earlyVol : 1;
-        double volRatio = recentVol / earlyVol;
-
-        // 信号判断阈值
-        if (Math.abs(momentum) < 0.15 || volRatio < 1.2) {
-            return null; // 无明显信号
-        }
+        if (confirm == null || !confirm.passed) return null;
 
         SignalResult result = new SignalResult();
-        result.price = ticker.getOrDefault("lastPrice", String.valueOf(recentClose));
-        result.direction = momentum > 0 ? "LONG" : "SHORT";
-        result.momentum = momentum;
-
-        // 评分：动量绝对值 + 成交量加权
-        double absMomentum = Math.abs(momentum);
-        result.score = (int) Math.min(100, absMomentum * 100 + (volRatio - 1) * 30);
+        result.price = ticker.getOrDefault("lastPrice", String.valueOf(score.ma7));
+        result.direction = score.direction;
+        result.momentum = score.ret3; // 用3min动量作为主动量
+        result.score = (int) score.combinedScore;
+        result.subtype = confirm.subtype;          // 子类型
+        result.ret1 = score.ret1;
+        result.ret5 = score.ret5;
+        result.relvol = score.relvol;
+        result.pullback = score.pullback;
 
         return result;
-    }
-
-    private double calcAvgClose(List<KlineData> klines) {
-        return klines.stream()
-                .mapToDouble(k -> parseDoubleSafe(k.getClose()))
-                .average().orElse(0);
-    }
-
-    private double calcAvgVol(List<KlineData> klines) {
-        return klines.stream()
-                .mapToDouble(k -> parseDoubleSafe(k.getQuoteAssetVolume()))
-                .average().orElse(0);
     }
 
     // ==================== 辅助方法 ====================
@@ -735,5 +741,10 @@ public class StrategyService {
         String direction;
         double momentum;
         int score;
+        String subtype;       // high_peak / volume_break / compression_break / extension / early_stage / standard
+        double ret1;
+        double ret5;
+        double relvol;
+        double pullback;
     }
 }

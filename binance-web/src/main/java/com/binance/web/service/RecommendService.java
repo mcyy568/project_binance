@@ -34,6 +34,9 @@ public class RecommendService {
     @Autowired
     private BinanceProperties binanceProperties;
 
+    @Autowired
+    private ScoringService scoringService;
+
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("HH:mm:ss")
             .withZone(ZoneId.of("Asia/Shanghai"));
@@ -300,96 +303,76 @@ public class RecommendService {
         int n = klines.size();
         DeepResult r = new DeepResult();
 
-        // 量价分析: 主动买入占比
+        // ======== 多维评分引擎 ========
+        ScoringService.ScoreResult score = scoringService.score15m(klines);
+
+        // 量价基础数据（用于补充和修正）
         double totalTakerBuy = 0, totalVolume = 0;
         for (int i = Math.max(0, n - 10); i < n; i++) {
             totalTakerBuy += parseDoubleSafe(klines.get(i).getTakerBuyQuoteAssetVolume());
             totalVolume += parseDoubleSafe(klines.get(i).getQuoteAssetVolume());
         }
-        double buyRatio = totalVolume > 0 ? totalTakerBuy / totalVolume : 0.5; // 主动买入比
-
-        // 市场状态: 波动性、趋势一致性
-        double ma7 = calcMA(klines, n - 7, n, "close");
-        double ma25 = calcMA(klines, n - 25, n, "close");
+        double buyRatio = totalVolume > 0 ? totalTakerBuy / totalVolume : 0.5;
         double latestClose = parseDoubleSafe(klines.get(n - 1).getClose());
 
-        // 方向判断
-        boolean bullishMomentum = medium.momentum > 0.2;
-        boolean bearishMomentum = medium.momentum < -0.2;
-        boolean highBuyPressure = buyRatio > 0.55;  // 主动买入占优
-        boolean highSellPressure = buyRatio < 0.45; // 主动卖出占优
-
-        StringBuilder reasonBuilder = new StringBuilder();
-        int score = 0;
-
-        if (bullishMomentum) {
-            r.direction = "LONG";
-            score += 25; // 动量基础分
-            reasonBuilder.append("多头排列");
-
-            if (highBuyPressure) {
-                score += 20;
-                reasonBuilder.append("，主动买入放量");
-            }
-            if (medium.volumeRatio > 2.0) {
-                score += 15;
-                reasonBuilder.append("，巨量突破");
-            } else if (medium.volumeRatio > 1.3) {
-                score += 10;
-                reasonBuilder.append("，温和放量");
-            }
-            if (medium.compression < 0.012) {
-                score += 15;
-                reasonBuilder.append("，压縮启动");
-            }
-            if (latestClose > ma25 && ma7 > ma25) {
-                score += 10;
-                reasonBuilder.append("，趋势延续");
-            }
-        } else if (bearishMomentum) {
-            r.direction = "SHORT";
-            score += 25;
-            reasonBuilder.append("空头排列");
-
-            if (highSellPressure) {
-                score += 20;
-                reasonBuilder.append("，主动卖出放量");
-            }
-            if (medium.volumeRatio > 2.0) {
-                score += 15;
-                reasonBuilder.append("，恐慌放量");
-            } else if (medium.volumeRatio > 1.3) {
-                score += 10;
-                reasonBuilder.append("，温和放量");
-            }
-            if (latestClose < ma25 && ma7 < ma25) {
-                score += 10;
-                reasonBuilder.append("，下跌延续");
-            }
+        // ======== 信号检测：优先使用多维评分，再用旧逻辑兜底 ========
+        if (score != null && !"NEUTRAL".equals(score.direction) && score.combinedScore >= MIN_SCORE) {
+            // 多维评分引擎命中
+            r.direction = score.direction;
+            r.totalScore = (int) Math.min(100, score.combinedScore);
+            r.reason = score.toReason();
         } else {
-            // 无明显方向，默认不做推荐
-            r.direction = buyRatio > 0.5 ? "LONG" : "SHORT";
-            score += 10;
-            reasonBuilder.append("盘整待变");
+            // 兜底：用原有逻辑（存量兼容）
+            boolean bullishMomentum = medium.momentum > 0.2;
+            boolean bearishMomentum = medium.momentum < -0.2;
+            boolean highBuyPressure = buyRatio > 0.55;
+            boolean highSellPressure = buyRatio < 0.45;
 
-            if (medium.compression < 0.01 && medium.breakout) {
-                score += 20;
-                reasonBuilder.append("，极压待爆");
+            StringBuilder reasonBuilder = new StringBuilder();
+            int oldScore = 0;
+
+            if (bullishMomentum) {
+                r.direction = "LONG";
+                oldScore += 25;
+                reasonBuilder.append("多头排列");
+                if (highBuyPressure) { oldScore += 20; reasonBuilder.append("，主动买入放量"); }
+                if (medium.volumeRatio > 2.0) { oldScore += 15; reasonBuilder.append("，巨量突破"); }
+                else if (medium.volumeRatio > 1.3) { oldScore += 10; reasonBuilder.append("，温和放量"); }
+                if (medium.compression < 0.012) { oldScore += 15; reasonBuilder.append("，压缩启动"); }
+                if (latestClose > score.ma25 && score.ma7 > score.ma25) { oldScore += 10; reasonBuilder.append("，趋势延续"); }
+            } else if (bearishMomentum) {
+                r.direction = "SHORT";
+                oldScore += 25;
+                reasonBuilder.append("空头排列");
+                if (highSellPressure) { oldScore += 20; reasonBuilder.append("，主动卖出放量"); }
+                if (medium.volumeRatio > 2.0) { oldScore += 15; reasonBuilder.append("，恐慌放量"); }
+                else if (medium.volumeRatio > 1.3) { oldScore += 10; reasonBuilder.append("，温和放量"); }
+                if (latestClose < score.ma25 && score.ma7 < score.ma25) { oldScore += 10; reasonBuilder.append("，下跌延续"); }
+            } else {
+                r.direction = buyRatio > 0.5 ? "LONG" : "SHORT";
+                oldScore += 10;
+                reasonBuilder.append("盘整待变");
+                if (medium.compression < 0.01 && medium.breakout) { oldScore += 20; reasonBuilder.append("，极压待爆"); }
+                if (buyRatio > 0.6) { oldScore += 10; reasonBuilder.append("，主力吸筹"); }
+                else if (buyRatio < 0.4) { oldScore += 10; reasonBuilder.append("，主力出货"); }
             }
-            if (buyRatio > 0.6) {
-                score += 10;
-                reasonBuilder.append("，主力吸筹");
-            } else if (buyRatio < 0.4) {
-                score += 10;
-                reasonBuilder.append("，主力出货");
-            }
+
+            r.totalScore = Math.min(oldScore, 100);
+            r.reason = reasonBuilder.toString();
         }
 
-        r.totalScore = Math.min(score, 100);
-        r.reason = reasonBuilder.toString();
+        // ======== 增强评分：中等扫描信号叠加 ========
+        // 如果 medium 层也检测到积极的信号，加分
+        if (medium.compression < 0.01 && medium.momentum > 0.3) {
+            r.totalScore = Math.min(100, r.totalScore + 5);
+            r.reason += " [压缩启动增强]";
+        }
+        if (medium.volumeRatio > 3.0) {
+            r.totalScore = Math.min(100, r.totalScore + 5);
+        }
 
-        // 推荐购买时间
-        r.recommendTime = calcRecommendTime(medium, buyRatio, latestClose, ma7, ma25);
+        // 推荐购买时间（基于均线和成交量的优先级）
+        r.recommendTime = calcRecommendTime(medium, buyRatio, latestClose, score.ma7, score.ma25);
 
         return r;
     }
