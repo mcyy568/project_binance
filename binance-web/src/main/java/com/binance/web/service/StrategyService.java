@@ -15,6 +15,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -58,13 +59,31 @@ public class StrategyService {
     /** 测试网账户资金（初始 5000 USDT） */
     private double accountCapital = 5000.0;
 
-    /** 默认监控币种 */
+    /** 默认监控币种
+     *  分两层：主流币（稳定）+ 高波动币（需额外风控）
+     */
     private static final List<String> DEFAULT_WATCHLIST = List.of(
             "BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT", "BNBUSDT",
             "XRPUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT",
             "SUIUSDT", "PEPEUSDT", "SHIBUSDT", "APTUSDT", "ARBUSDT",
             "OPUSDT", "FILUSDT", "ATOMUSDT", "NEARUSDT", "WIFUSDT"
     );
+
+    /** 高波动币种（meme/小市值）：需要更严格的过滤条件 */
+    private static final Set<String> HIGH_VOLATILITY_SYMBOLS = Set.of(
+            "PEPEUSDT", "SHIBUSDT", "WIFUSDT", "BONKUSDT", "FLOKIUSDT", "DOGEUSDT"
+    );
+
+    /** 大盘BTC锚定：不随山寨币一起跌 */
+    private static final String BTC_SYMBOL = "BTCUSDT";
+
+    /** 风控参数 */
+    private static final double DAILY_LOSS_LIMIT_PCT = -5.0;   // 日亏损超5%停止交易
+    private static final double BTC_BEARISH_THRESHOLD = -2.0;  // BTC 15分钟跌超2%视为大盘走弱
+    private static final double MIN_24H_VOLUME_USDT = 10_000_000; // 最小24h交易量(10M USDT)
+    private static final int COOLDOWN_MINUTES = 5;              // 同方向开仓冷却时间
+    private static final int MAX_DAILY_TRADES = 8;               // 每日最大交易笔数
+    private static final int MAX_HOLD_HOURS = 4;                 // 最大持仓时间（从8h降到4h）
 
     private List<String> watchlist = new ArrayList<>(DEFAULT_WATCHLIST);
     private List<String> fallbackUrls = List.of(
@@ -75,23 +94,64 @@ public class StrategyService {
     );
     private String activeBaseUrl;
 
+    // 风控状态
+    private Boolean btcMarketBearish = null;       // BTC大盘是否走弱（缓存1分钟）
+    private long lastBtcCheckTime = 0;
+    private LocalDateTime lastTradeCloseTime = null; // 上次平仓时间（冷却用）
+    private double todayTotalPnl = 0;               // 今日累计盈亏
+
     // ==================== 核心调度入口 ====================
 
     /**
-     * 每1分钟执行一次：信号检测 + 持仓管理
+     * 每1分钟执行一次：信号检测 + 持仓管理（复盘优化版）
      */
     public void tick() {
         try {
-            // 0. 同步测试网账户余额
+            // 0. 重置每日统计
+            resetDailyIfNeeded();
+
+            // 1. 同步测试网账户余额
             syncAccountBalance();
 
-            // 1. 更新所有持仓的浮动盈亏
+            // 2. 检查大盘风控：BTC是否走弱
+            if (!checkBtcMarketHealthy()) {
+                log.info("大盘风控：BTC走弱或波动异常，本轮跳过开仓扫描");
+                // 但仍然检查持仓退出
+                updateAllPositions();
+                checkExitConditions();
+                return;
+            }
+
+            // 3. 日亏损限制检查
+            if (todayTotalPnl < accountCapital * DAILY_LOSS_LIMIT_PCT / 100) {
+                log.info("风控触发：今日已亏损 {:.2f} USDT ({:.1f}%)，停止新开仓",
+                        todayTotalPnl, todayTotalPnl / accountCapital * 100);
+                updateAllPositions();
+                checkExitConditions();
+                return;
+            }
+
+            // 4. 更新所有持仓的浮动盈亏
             updateAllPositions();
 
-            // 2. 检查所有持仓的退出条件
+            // 5. 检查所有持仓的退出条件
             checkExitConditions();
 
-            // 3. 如果没有持仓或未满，扫描新信号
+            // 6. 如果超过每日最大交易数，不再开仓
+            int todayTrades = countTodayTrades();
+            if (todayTrades >= MAX_DAILY_TRADES) {
+                log.info("今日已交易 {} 笔，已达上限 {}，停止新开仓", todayTrades, MAX_DAILY_TRADES);
+                return;
+            }
+
+            // 7. 检查冷却时间
+            if (lastTradeCloseTime != null &&
+                    Duration.between(lastTradeCloseTime, LocalDateTime.now()).toMinutes() < COOLDOWN_MINUTES) {
+                log.debug("冷却中，距离上次平仓不足 {} 分钟", COOLDOWN_MINUTES);
+                return;
+            }
+
+            // 8. 如果没有持仓或未满，扫描新信号
             int openCount = strategyMapper.countOpenPositions();
             StrategyConfig config = strategyMapper.findByMode("EARLY");
             int maxPos = config != null && config.getMaxPositions() != null ? config.getMaxPositions() : 1;
@@ -100,6 +160,80 @@ public class StrategyService {
             }
         } catch (Exception e) {
             log.error("策略引擎 tick 异常: {}", e.getMessage(), e);
+        }
+    }
+
+    /** 每日重置 */
+    private void resetDailyIfNeeded() {
+        LocalDate today = LocalDate.now();
+        // 用静态变量记录上次重置日期
+        // 简化实现：每次tick检查是否新的一天
+        LocalDate lastReset = LocalDate.from(
+                lastTradeCloseTime != null && lastTradeCloseTime.toLocalDate().equals(today)
+                        ? lastTradeCloseTime.toLocalDate() : today.minusDays(1));
+        if (!today.equals(lastReset)) {
+            todayTotalPnl = 0;
+        }
+    }
+
+    /** 统计今日已平仓交易数 */
+    private int countTodayTrades() {
+        try {
+            return strategyMapper.countTodayTrades();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /** BTC大盘趋势检查：返回 true 表示大盘健康，可以开仓 */
+    private boolean checkBtcMarketHealthy() {
+        long now = System.currentTimeMillis();
+        // 缓存1分钟
+        if (now - lastBtcCheckTime < 60_000 && btcMarketBearish != null) {
+            return !btcMarketBearish;
+        }
+        lastBtcCheckTime = now;
+
+        try {
+            // 获取BTC 15分钟K线和1小时K线
+            List<KlineData> btc15m = fetchKlines(BTC_SYMBOL, "15m", 1);
+            List<KlineData> btc1h = fetchKlines(BTC_SYMBOL, "1h", 4);
+
+            if (btc15m.isEmpty()) {
+                btcMarketBearish = false; // 获取失败不阻挡
+                return true;
+            }
+
+            // 检查BTC 15分钟涨跌
+            KlineData latest15m = btc15m.get(btc15m.size() - 1);
+            double btcRet15 = (Double.parseDouble(latest15m.getClose()) -
+                    Double.parseDouble(latest15m.getOpen())) / Double.parseDouble(latest15m.getOpen()) * 100;
+
+            // BTC 15分钟跌超阈值 → 大盘走弱
+            if (btcRet15 < BTC_BEARISH_THRESHOLD) {
+                log.info("BTC_ALERT: BTC 15分钟跌 {:.2f}% > {:.1f}%，大盘走弱，禁止开仓",
+                        btcRet15, -BTC_BEARISH_THRESHOLD);
+                btcMarketBearish = true;
+                return false;
+            }
+
+            // 检查BTC 1小时趋势
+            if (btc1h.size() >= 4) {
+                double btcRet1h = (Double.parseDouble(btc1h.get(btc1h.size()-1).getClose()) -
+                        Double.parseDouble(btc1h.get(0).getOpen())) / Double.parseDouble(btc1h.get(0).getOpen()) * 100;
+                if (btcRet1h < -1.5) {
+                    log.info("BTC_ALERT: BTC 1小时走弱 {:.2f}%，需等大盘企稳", btcRet1h);
+                    btcMarketBearish = true;
+                    return false;
+                }
+            }
+
+            btcMarketBearish = false;
+            return true;
+        } catch (Exception e) {
+            log.debug("BTC大盘检查异常: {}", e.getMessage());
+            btcMarketBearish = false;
+            return true;
         }
     }
 
@@ -135,12 +269,27 @@ public class StrategyService {
                     continue;
                 }
 
-                // 获取24h波动率和1m K线
+                // 获取24h行情和1m K线
                 Map<String, String> ticker = fetchTicker(symbol);
                 if (ticker.isEmpty()) continue;
 
+                // ----- 新增：24h交易量过滤 -----
+                double quoteVolume = parseDoubleSafe(ticker.getOrDefault("volume", "0"));
+                if (quoteVolume < MIN_24H_VOLUME_USDT) {
+                    log.debug("{} 24h成交量={:.0f} < 10M，量能不足跳过", symbol, quoteVolume);
+                    continue;
+                }
+
                 double volatility24h = parseDoubleSafe(ticker.getOrDefault("priceChangePercent", "0"));
                 volatility24h = Math.abs(volatility24h);
+
+                // ----- 新增：高波动币种额外风控 -----
+                boolean isHighVol = HIGH_VOLATILITY_SYMBOLS.contains(symbol);
+                if (isHighVol && volatility24h > 15) {
+                    // meme币24h波动超15%时不进场（复盘：PEPE大亏是在极端波动下开的仓）
+                    log.info("{} 高波动币种 24h波动={:.1f}% > 15%，风险过高跳过", symbol, volatility24h);
+                    continue;
+                }
 
                 List<KlineData> klines = fetchKlines(symbol, "1m", 20);
                 if (klines.size() < 20) continue;
@@ -155,6 +304,14 @@ public class StrategyService {
 
                 signalCount++;
                 String baseAsset = symbol.replace("USDT", "");
+
+                // ----- 高波动币种额外评分要求 -----
+                if (isHighVol && signal.score < 85) {
+                    log.info("{} 高波动币种信号评分={} < 85，风险过高跳过", symbol, signal.score);
+                    saveSkippedSignal(symbol, baseAsset, signal, volatility24h, config.getMode(),
+                            "high_vol_symbol_low_score");
+                    continue;
+                }
 
                 // 检查同币种今日是否已有信号
                 if (strategyMapper.countTodayAcceptedBySymbol(symbol) > 0) {
@@ -245,7 +402,12 @@ public class StrategyService {
     }
 
     /**
-     * 检查退出条件：止损 / 利润保护回撤 / 动态退出（按子类型差异化）
+     * 检查退出条件：止损 / 利润保护回撤 / 动态退出（复盘优化版）
+     * 关键改进：
+     * 1. 止损阈值从50%降低到合理范围（通过DB配置控制，默认5-8%）
+     * 2. 利润保护触发从120%降低到3-5%（通过DB配置控制）
+     * 3. 最大持仓时间从8h降到4h
+     * 4. 增加浮盈回撤保护：浮盈达2%即激活保本止损
      */
     private void checkExitConditions() {
         List<StrategyPosition> positions = strategyMapper.findOpenPositions();
@@ -257,13 +419,26 @@ public class StrategyService {
 
                 String reason = null;
 
-                // 1. 止损检查（硬止损始终生效）
-                double lossPct = -(config.getStopLossPct());
-                if (pos.getPnlPct() <= lossPct) {
-                    reason = "原定止损触发 (" + String.format("%.1f", pos.getPnlPct()) + "%)";
+                // ---- 第1层：浮盈回撤保护（新增！复盘核心改进） ----
+                // 当浮盈达到margin的2.5%时，启动保本止损
+                // 如果回撤到仅剩0.5%利润 → 保本退出
+                double breakevenPct = 2.5;  // 浮盈达2.5%启动保本保护
+                double breakevenProtectPct = 0.5; // 回撤到0.5%以下退出
+                if (pos.getUnrealizedPnl() < pos.getMargin() * breakevenProtectPct / 100
+                        && pos.getHighestPnl() >= pos.getMargin() * breakevenPct / 100) {
+                    reason = String.format("跌破保本线，最高浮盈%.1fU回撤到%.1fU (保本%)",
+                            pos.getHighestPnl(), pos.getUnrealizedPnl(), breakevenPct);
                 }
 
-                // 2. 利润保护：达到profitProtectPct后，回撤drawdownExitPct退出
+                // ---- 第2层：止损检查（硬止损） ----
+                if (reason == null) {
+                    double lossPct = -(config.getStopLossPct());
+                    if (pos.getPnlPct() <= lossPct) {
+                        reason = "原定止损触发 (" + String.format("%.1f", pos.getPnlPct()) + "%)";
+                    }
+                }
+
+                // ---- 第3层：利润保护回撤 ----
                 if (reason == null && pos.getHighestPnl() >= pos.getMargin() * config.getProfitProtectPct() / 100) {
                     double drawdownFromPeak = pos.getHighestPnl() - pos.getUnrealizedPnl();
                     double drawdownPct = pos.getHighestPnl() > 0 ? drawdownFromPeak / pos.getHighestPnl() * 100 : 0;
@@ -273,13 +448,11 @@ public class StrategyService {
                     }
                 }
 
-                // 3. 动态退出（基于子类型差异化的时间+利润条件）
+                // ---- 第4层：动态退出 ----
                 if (reason == null) {
                     double minutesOpen = Duration.between(pos.getOpenTime(), LocalDateTime.now()).toMinutes();
                     double highestPnlPct = pos.getHighestPnl() / pos.getMargin() * 100;
                     String subtype = extractSubtype(pos.getStrategyName());
-
-                    // 用当前1m K线重新评分（用于动态退出判断）
                     String dynamicReason = scoringService.dynamicExitCheck(
                             null, pos.getPnlPct(), highestPnlPct, minutesOpen, subtype);
                     if (dynamicReason != null) {
@@ -287,11 +460,11 @@ public class StrategyService {
                     }
                 }
 
-                // 4. 8小时未启动利润保护退出（兜底）
+                // ---- 第5层：最大持仓时间（从8h缩短到4h） ----
                 if (reason == null) {
                     long hoursOpen = Duration.between(pos.getOpenTime(), LocalDateTime.now()).toHours();
-                    if (hoursOpen >= 8 && pos.getHighestPnl() < pos.getMargin() * config.getProfitProtectPct() / 100) {
-                        reason = "8小时未启动利润保护退出";
+                    if (hoursOpen >= MAX_HOLD_HOURS && pos.getHighestPnl() < pos.getMargin() * config.getProfitProtectPct() / 100) {
+                        reason = String.format("%d小时未启动利润保护退出", MAX_HOLD_HOURS);
                     }
                 }
 
@@ -469,9 +642,13 @@ public class StrategyService {
             // 更新账户资金
             accountCapital += finalPnl;
 
-            log.info("平仓: {} {} {} 盈亏={:.2f}U ({:.1f}%) 原因={}",
+            // 更新当日累计PnL和冷却时间
+            todayTotalPnl += finalPnl;
+            lastTradeCloseTime = LocalDateTime.now();
+
+            log.info("平仓: {} {} {} 盈亏={:.2f}U ({:.1f}%) 今日累计={:.2f}U 原因={}",
                     pos.getSymbol(), pos.getDirection(), pos.getStrategyName(), finalPnl,
-                    finalPnl / pos.getMargin() * 100, reason);
+                    finalPnl / pos.getMargin() * 100, todayTotalPnl, reason);
 
         } catch (Exception e) {
             log.error("平仓失败 {}: {}", pos.getSymbol(), e.getMessage());

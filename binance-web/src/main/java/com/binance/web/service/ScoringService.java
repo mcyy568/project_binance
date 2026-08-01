@@ -29,12 +29,13 @@ public class ScoringService {
     private static final double W_FAST    = 0.40;
     private static final double W_QUALITY = 0.30;
 
-    // ============ 阈值常量 ============
-    private static final double RET1_MIN  = 0.10;   // 1min 最低涨幅
-    private static final double RET3_MIN  = 0.15;   // 3min 最低涨幅
-    private static final double RET15_MAX = 3.5;    // 15min 过热上限
-    private static final double PULLBACK_MAX = 3.0; // 最大回撤
-    private static final double WICK_RATIO_MAX_LONG = 0.60; // LONG 方向最大上影线占比
+    // ============ 阈值常量（复盘优化版 - 提高所有阈值减少噪音） ============
+    private static final double RET1_MIN  = 0.15;   // 1min 最低涨幅（从0.10提高）
+    private static final double RET3_MIN  = 0.20;   // 3min 最低涨幅（从0.15提高）
+    private static final double RET15_MAX = 3.0;    // 15min 过热上限（从3.5收紧到3.0）
+    private static final double PULLBACK_MAX = 2.5; // 最大回撤（从3.0收紧到2.5）
+    private static final double WICK_RATIO_MAX_LONG = 0.50; // LONG方向上影线（从0.60收紧到0.50）
+    private static final double MIN_RELVOL = 1.2;   // 最低相对成交量
 
     // ============ 对外入口 ============
 
@@ -357,39 +358,51 @@ public class ScoringService {
     public EntryConfirm confirmEntry(ScoreResult r, String symbol) {
         if (r == null || "NEUTRAL".equals(r.direction)) return null;
 
-        // ---- 第一层：综合评分门槛 ----
-        if (r.combinedScore < 75) {
-            log.debug("{} combinedScore={} < 75, 不合格", symbol, String.format("%.1f", r.combinedScore));
+        // ---- 第一层：综合评分门槛（提高至80，复盘发现75以下亏损率高） ----
+        if (r.combinedScore < 80) {
+            log.debug("{} combinedScore={} < 80, 不合格", symbol, String.format("%.1f", r.combinedScore));
             return null;
         }
 
-        // ---- 第二层：快速动量确认 ----
-        if (r.fastScore < 91) {
-            log.debug("{} fastScore={} < 91, 动量不够", symbol, String.format("%.1f", r.fastScore));
+        // ---- 第二层：快速动量确认（提高至95，减少假突破） ----
+        if (r.fastScore < 95) {
+            log.debug("{} fastScore={} < 95, 动量不够", symbol, String.format("%.1f", r.fastScore));
             return null;
         }
 
-        // ---- 第三层：资金方向确认 ----
-        if (r.fundScore < 52) {
-            log.debug("{} fundScore={} < 52, 资金未确认", symbol, String.format("%.1f", r.fundScore));
+        // ---- 第三层：资金方向确认（提高至55） ----
+        if (r.fundScore < 55) {
+            log.debug("{} fundScore={} < 55, 资金未确认", symbol, String.format("%.1f", r.fundScore));
             return null;
         }
 
-        // ---- 第四层：回撤确认 ----
+        // ---- 第四层：结构质量确认（新增） ----
+        if (r.qualityScore < 55) {
+            log.debug("{} qualityScore={} < 55, 结构质量不足", symbol, String.format("%.1f", r.qualityScore));
+            return null;
+        }
+
+        // ---- 第五层：成交量过滤（新增，复盘发现缩量突破多为假信号） ----
+        if (r.relvol < MIN_RELVOL) {
+            log.debug("{} relvol={} < {}, 量能不足", symbol, String.format("%.2f", r.relvol), MIN_RELVOL);
+            return null;
+        }
+
+        // ---- 第六层：回撤确认 ----
         if (r.pullback > PULLBACK_MAX) {
             log.debug("{} pullback={} > {}, 回撤过大", symbol,
                     String.format("%.2f", r.pullback), PULLBACK_MAX);
             return null;
         }
 
-        // ---- 第五层：过热线检测 ----
+        // ---- 第七层：过热线检测 ----
         if (Math.abs(r.ret15) > RET15_MAX) {
             log.debug("{} ret15={} > {}, 短期过热", symbol,
                     String.format("%.2f", r.ret15), RET15_MAX);
             return null;
         }
 
-        // ---- 第六层：上影线确认（LONG方向） ----
+        // ---- 第八层：上影线确认（LONG方向） ----
         if ("LONG".equals(r.direction) && r.wickRatio > WICK_RATIO_MAX_LONG) {
             log.debug("{} wickRatio={} > {}, 上影线过长", symbol,
                     String.format("%.2f", r.wickRatio), WICK_RATIO_MAX_LONG);

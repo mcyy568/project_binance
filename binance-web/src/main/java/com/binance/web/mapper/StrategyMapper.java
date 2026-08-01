@@ -96,6 +96,9 @@ public interface StrategyMapper {
     @Select("SELECT COUNT(*) FROM strategy_trade")
     int countTotalTrades();
 
+    @Select("SELECT COUNT(*) FROM strategy_trade WHERE DATE(close_time) = CURDATE()")
+    int countTodayTrades();
+
     @Select("SELECT COUNT(*) FROM strategy_trade WHERE pnl > 0")
     int countWinTrades();
 
