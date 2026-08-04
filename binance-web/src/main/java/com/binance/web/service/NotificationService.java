@@ -107,7 +107,7 @@ public class NotificationService {
             MimeMessage msg = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(msg, true, "UTF-8");
             helper.setFrom(mailFrom);
-            helper.setTo(to);
+            helper.setTo(to.split(","));
             helper.setSubject(String.format("[Binance] %s 高分推荐通知（%d条）",
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm")), list.size()));
 
@@ -131,7 +131,7 @@ public class NotificationService {
             MimeMessage msg = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(msg, true, "UTF-8");
             helper.setFrom(mailFrom);
-            helper.setTo(to);
+            helper.setTo(to.split(","));
             helper.setSubject(String.format("[Binance] %s 收藏币种评分下降提醒（%d条）",
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm")), list.size()));
 
